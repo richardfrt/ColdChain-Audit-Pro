@@ -6,7 +6,7 @@ import streamlit as st
 from openai import OpenAI
 
 # Esta es la línea segura que debes poner en lugar de la que tiene tu clave 'sk-'
-client = OpenAI(api_key=st.secrets["open ai key"])
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 # ==========================================
 # 1. CONFIGURACIÓN - PEGA TU CLAVE AQUÍ
 # =====================================
