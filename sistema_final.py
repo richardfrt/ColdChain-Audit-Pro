@@ -2,12 +2,14 @@ import pandas as pd
 from openai import OpenAI
 from fpdf import FPDF
 import os
+import streamlit as st
+from openai import OpenAI
 
+# Esta es la línea segura que debes poner en lugar de la que tiene tu clave 'sk-'
+client = OpenAI(api_key=st.secrets["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"])
 # ==========================================
 # 1. CONFIGURACIÓN - PEGA TU CLAVE AQUÍ
-# ==========================================
-TU_API_KEY = "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"
-client = OpenAI(api_key=TU_API_KEY)
+# =====================================
 
 def analizar_datos(archivo_csv):
     df = pd.read_csv(archivo_csv)
