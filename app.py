@@ -65,9 +65,9 @@ if btn_analizar:
             )
             st.stop()
 
-        # Downsampling para mantener fluidez con telemetría masiva.
+        # Muestreo agresivo: nunca enviar más de 1.000 puntos al gráfico.
         serie_temp = df_telemetria[col_temp]
-        paso = 10 if len(serie_temp) > 1000 else 1
+        paso = max(1, len(serie_temp) // 1000)
         serie_temp_grafico = serie_temp.iloc[::paso]
         eje_x = serie_temp_grafico.index
 
@@ -85,56 +85,66 @@ if btn_analizar:
                     .set_index("_tiempo")
                     [[col_temp]]
                 )
-                if len(df_plot) > 1000:
-                    # Si hay timestamps válidos, se usa resample para una curva ligera.
-                    df_plot = df_plot.resample("10min").mean().dropna()
-                else:
-                    df_plot = df_plot.iloc[::paso]
+                paso_df_plot = max(1, len(df_plot) // 1000)
+                df_plot = df_plot.iloc[::paso_df_plot]
                 serie_temp_grafico = df_plot[col_temp]
                 eje_x = df_plot.index
 
-        st.subheader("Análisis de Telemetría: Curva de Temperatura")
-        if PLOTLY_DISPONIBLE:
-            figura = go.Figure()
-            figura.add_trace(
-                go.Scattergl(
-                    x=eje_x,
-                    y=serie_temp_grafico,
-                    mode="lines",
-                    name="Temperatura (°C)",
-                    line=dict(color="#1f77b4", width=2),
-                )
-            )
-            figura.add_hline(
-                y=1.1,
-                line_color="red",
-                line_width=2,
-                line_dash="dash",
-                annotation_text="Línea Crítica (1.1°C)",
-                annotation_position="top right",
-            )
-            figura.update_layout(
-                xaxis_title="Registro",
-                yaxis_title="Temperatura (°C)",
-                template="plotly_white",
-                margin=dict(l=20, r=20, t=20, b=20),
-                transition=dict(duration=0),
-            )
-            st.plotly_chart(
-                figura,
-                use_container_width=True,
-                config={"displaylogo": False},
-            )
-        else:
-            st.line_chart(
-                {
-                    "Temperatura (°C)": serie_temp_grafico,
-                    "Línea Crítica (1.1°C)": [1.1] * len(serie_temp_grafico),
-                }
-            )
+        with st.container():
+            if (serie_temp > 1.1).any():
+                st.warning("⚠️ Se han detectado picos de temperatura por encima del límite legal")
 
-        if paso > 1:
-            st.caption("Visualización optimizada: mostrando 1 de cada 10 registros.")
+            st.subheader("Análisis de Telemetría: Curva de Temperatura")
+            if PLOTLY_DISPONIBLE:
+                figura = go.Figure()
+                figura.add_trace(
+                    go.Scattergl(
+                        x=eje_x,
+                        y=serie_temp_grafico,
+                        mode="lines",
+                        name="Temperatura (°C)",
+                        line=dict(color="#1f77b4", width=2),
+                    )
+                )
+                figura.add_hrect(
+                    y0=1.1,
+                    y1=max(float(serie_temp_grafico.max()), 1.1),
+                    fillcolor="red",
+                    opacity=0.08,
+                    line_width=0,
+                    annotation_text="LÍMITE TRATAMIENTO FRÍO",
+                    annotation_position="top left",
+                )
+                figura.add_hline(
+                    y=1.1,
+                    line_color="red",
+                    line_width=2,
+                    line_dash="dash",
+                )
+                figura.update_layout(
+                    xaxis_title="Registro",
+                    yaxis_title="Temperatura (°C)",
+                    template="plotly_white",
+                    margin=dict(l=20, r=20, t=20, b=20),
+                    transition=dict(duration=0),
+                )
+                st.plotly_chart(
+                    figura,
+                    use_container_width=True,
+                    config={"displaylogo": False, "staticPlot": False},
+                )
+            else:
+                st.line_chart(
+                    {
+                        "Temperatura (°C)": serie_temp_grafico,
+                        "Línea Crítica (1.1°C)": [1.1] * len(serie_temp_grafico),
+                    }
+                )
+
+            if paso > 1:
+                st.caption(
+                    f"Visualización optimizada: {len(serie_temp_grafico)} puntos mostrados de {len(serie_temp)}."
+                )
 
         st.subheader("Veredicto")
         if resumen["veredicto"] == "RECHAZADO":
