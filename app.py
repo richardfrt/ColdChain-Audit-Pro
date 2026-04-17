@@ -25,18 +25,83 @@ PROTOCOLOS = {
 
 
 st.set_page_config(
-    page_title="Cold-Chain Auditoría",
-    page_icon="🧊",
+    page_title="ColdChain Audit Pro | Telemetría",
+    page_icon="🌡️",
     layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+      html, body, [class*="css"]  {
+        font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      }
+      .block-container { padding-top: 1.5rem; padding-bottom: 2rem; max-width: 1200px; }
+      [data-testid="stMetric"] {
+        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 0.85rem 1rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      }
+      [data-testid="stMetric"] label { color: #64748b !important; font-weight: 600; letter-spacing: 0.02em; }
+      [data-testid="stMetric"] [data-testid="stMetricValue"] { color: #0f172a !important; }
+      [data-testid="stPlotlyChart"] {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+      }
+      [data-testid="stDataFrame"], [data-testid="stTable"] {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+      }
+      section[data-testid="stSidebar"] > div {
+        background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+      }
+      section[data-testid="stSidebar"] .stMarkdown, section[data-testid="stSidebar"] label,
+      section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] span {
+        color: #e2e8f0 !important;
+      }
+      section[data-testid="stSidebar"] [data-baseweb="select"] > div {
+        background-color: #334155 !important;
+        border-color: #475569 !important;
+      }
+      .cc-sidebar-brand {
+        font-size: 1.15rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #f8fafc !important;
+        margin-bottom: 0.25rem;
+      }
+      /* Alertas en el área principal: bordes redondeados y lectura clara */
+      section.main [data-testid="stAlert"] {
+        width: 100%;
+        border-radius: 14px;
+        padding: 1rem 1.15rem;
+        font-size: 1.02rem;
+        font-weight: 600;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+      }
+      .cc-hero-title { font-size: 1.75rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
+      .cc-hero-sub { color: #64748b; font-size: 0.95rem; margin-top: 0.25rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 
 with st.sidebar:
-    st.title("Configuración de Auditoría")
-    st.write(
-        "Bienvenido al panel de auditoría Cold-Chain. "
-        "Aquí podrás analizar el registro de temperaturas, generar el informe legal con IA "
-        "y construir el dossier fitosanitario en PDF para el lote."
+    # INSERTAR LOGO AQUÍ
+    # Ejemplo: st.image("assets/logo.png", use_container_width=True)
+    st.markdown('<p class="cc-sidebar-brand">❄️ COLDCHAIN AUDIT PRO</p>', unsafe_allow_html=True)
+    st.divider()
+    st.markdown("**Configuración de auditoría**")
+    st.caption(
+        "Panel corporativo para telemetría, informe asistido y dossier PDF."
     )
     archivo_subido = st.file_uploader(
         "Registro de temperaturas (CSV)",
@@ -52,8 +117,14 @@ with st.sidebar:
     )
 
 
-st.header("Auditoría de Tratamiento en Frío")
-st.caption("Resultados técnicos + informe de incidencia + PDF final.")
+# INSERTAR LOGO AQUÍ (cabecera principal)
+# st.image("assets/logo.png", width=220)
+
+st.markdown('<p class="cc-hero-title">Auditoría de cadena de frío</p>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="cc-hero-sub">Telemetría, veredicto normativo e informe asistido en un solo flujo.</p>',
+    unsafe_allow_html=True,
+)
 
 
 if btn_analizar:
@@ -66,11 +137,6 @@ if btn_analizar:
             resumen = analizar_datos(archivo_subido, limite_temperatura)
             df_telemetria = cargar_datos_csv(archivo_subido)
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Registros", f"{resumen['total_registros']:,}".replace(",", "."))
-        c2.metric("Temperatura Máxima (°C)", f"{resumen['max_temp']:.2f}")
-        c3.metric("Fallos (min)", str(resumen["minutos_fallo"]))
-
         col_temp, col_tiempo = resolver_columnas_telemetria(df_telemetria)
         if not col_temp:
             st.error(
@@ -81,6 +147,22 @@ if btn_analizar:
 
         serie_temp = df_telemetria[col_temp]
         max_temp_archivo = float(serie_temp.max())
+        min_temp_archivo = float(serie_temp.min())
+
+        if resumen["veredicto"] == "RECHAZADO":
+            st.error("**RECHAZADO** — El cargamento no cumple el límite térmico del protocolo seleccionado.")
+        else:
+            st.success("**APTO** — El cargamento cumple el límite térmico del protocolo seleccionado.")
+
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("Temperatura máxima (°C)", f"{resumen['max_temp']:.2f}")
+        with m2:
+            st.metric("Temperatura mínima (°C)", f"{min_temp_archivo:.2f}")
+        with m3:
+            st.metric("Fallos (min)", str(resumen["minutos_fallo"]))
+
+        st.caption(f"Registros analizados: **{resumen['total_registros']:,}**".replace(",", "."))
 
         # Sincronización de tiempo para el eje X.
         if col_tiempo:
@@ -181,12 +263,6 @@ if btn_analizar:
                     f"Visualización optimizada con preservación de picos: {len(serie_temp_grafico)} puntos mostrados de {len(serie_temp)}."
                 )
 
-        st.subheader("Veredicto")
-        if resumen["veredicto"] == "RECHAZADO":
-            st.error("CARGAMENTO RECHAZADO")
-        else:
-            st.success("APTO PARA EXPORTACIÓN")
-
         informe_ia = ""
         if ejecutar_ia:
             with st.spinner("Consultando al agente legal (IA)..."):
@@ -225,4 +301,3 @@ if btn_analizar:
             )
     except Exception as e:
         st.exception(e)
-
