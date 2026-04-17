@@ -16,12 +16,11 @@ from sistema_final import (
 )
 
 PROTOCOLOS = {
-    "Unión Europea (Estándar de Calidad)": {"limite": 4.0, "organismo": "Estándar de Calidad UE", "destino": "UE"},
-    "USA (USDA/APHIS)": {"limite": 1.1, "organismo": "USDA/APHIS", "destino": "USA"},
-    "China (GACC)": {"limite": 0.0, "organismo": "GACC", "destino": "China"},
-    "Japón (MAFF)": {"limite": 1.1, "organismo": "MAFF", "destino": "Japón"},
-    "Corea del Sur (APQA)": {"limite": 0.6, "organismo": "APQA", "destino": "Corea del Sur"},
-    "Personalizado": {"limite": None, "organismo": "Normativa personalizada", "destino": "Personalizado"},
+    "UE - Estándar General (4.0°C)": {"limite": 4.0, "organismo": "Estándar General UE", "destino": "UE"},
+    "USA - USDA T103-a-1 (1.1°C)": {"limite": 1.1, "organismo": "USDA T103-a-1", "destino": "USA"},
+    "USA - USDA T103-a-2 (2.2°C)": {"limite": 2.2, "organismo": "USDA T103-a-2", "destino": "USA"},
+    "China - Protocolo GACC (0.0°C)": {"limite": 0.0, "organismo": "GACC", "destino": "China"},
+    "Japón - MAFF Protocol (1.1°C)": {"limite": 1.1, "organismo": "MAFF", "destino": "Japón"},
 }
 
 
@@ -45,17 +44,12 @@ with st.sidebar:
     )
     protocolo_seleccionado = st.selectbox("Protocolo de destino", options=list(PROTOCOLOS.keys()))
     limite_temperatura = PROTOCOLOS[protocolo_seleccionado]["limite"]
-    if limite_temperatura is None:
-        limite_temperatura = st.number_input(
-            "Límite térmico personalizado (°C)",
-            min_value=-10.0,
-            max_value=20.0,
-            value=1.1,
-            step=0.1,
-        )
     st.caption(f"Límite activo: {limite_temperatura:.2f}°C")
     ejecutar_ia = st.toggle("Generar informe con IA", value=True)
     btn_analizar = st.button("Ejecutar auditoría", type="primary", use_container_width=True)
+    st.caption(
+        "Aviso legal: Esta herramienta es de carácter informativo y no sustituye la inspección oficial de las autoridades fitosanitarias."
+    )
 
 
 st.header("Auditoría de Tratamiento en Frío")

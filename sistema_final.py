@@ -130,6 +130,7 @@ def obtener_informe_ia(
     limite_temperatura=1.1,
 ):
     print("Consultando al experto legal de OpenAI...")
+    margen_limite = float(limite_temperatura) - float(resumen["max_temp"])
     instrucciones = f"""
     Actúa como un inspector de {pais} bajo la normativa {organismo}.
     Analiza estos datos de un contenedor:
@@ -137,9 +138,13 @@ def obtener_informe_ia(
     - Minutos fuera de rango: {resumen['minutos_fallo']}
     - Temperatura máxima: {resumen['max_temp']}°C
     - Límite normativo: {limite_temperatura}°C
+    - Proximidad al límite: {margen_limite:.2f}°C
     
     Redacta un informe técnico breve y profesional explicando si se cumple el protocolo 
     de tratamiento en frío (límite {limite_temperatura}°C) y qué debe hacer la cooperativa.
+    Evalúa explícitamente la "Proximidad al Límite". Si la temperatura máxima está a menos de
+    0.2°C del límite, incluye literalmente esta advertencia:
+    "RIESGO ELEVADO: La temperatura se mantuvo muy cerca del límite crítico".
     """
     try:
         response = client.chat.completions.create(
@@ -150,7 +155,7 @@ def obtener_informe_ia(
     except Exception as e:
         return f"Error con la IA: {e}"
 
-def generar_pdf(resumen, informe_ia, destino="UE", protocolo="Unión Europea (Estándar de Calidad)", limite_temperatura=1.1):
+def generar_pdf(resumen, informe_ia, destino="UE", protocolo="UE - Estándar General (4.0°C)", limite_temperatura=1.1):
     pdf = FPDF()
     pdf.add_page()
 
@@ -224,10 +229,11 @@ def generar_pdf(resumen, informe_ia, destino="UE", protocolo="Unión Europea (Es
     pdf.set_y(-15)
     pdf.set_text_color(90, 90, 90)
     pdf.set_font("Arial", "I", 8)
+    pdf.cell(0, 4, "Documento generado automáticamente por sistema de auditoría basado en IA. V 2.0", ln=True, align="C")
     pdf.cell(
         0,
-        5,
-        "Documento generado automáticamente por sistema de auditoría basado en IA. V 2.0",
+        4,
+        "Aviso legal: Esta herramienta es de carácter informativo y no sustituye la inspección oficial de las autoridades fitosanitarias.",
         ln=True,
         align="C",
     )
