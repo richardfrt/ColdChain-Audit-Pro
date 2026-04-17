@@ -31,13 +31,77 @@ def _leer_dataframe_desde_bytes(csv_bytes):
     return pd.read_csv(io.BytesIO(csv_bytes), sep=None, engine="python", encoding="utf-8")
 
 
+def _normalizar_nombre_columna(nombre_columna):
+    return str(nombre_columna).strip().lower().replace(" ", "_")
+
+
+def resolver_columnas_telemetria(df):
+    columnas = list(df.columns)
+    normalizadas = {col: _normalizar_nombre_columna(col) for col in columnas}
+
+    candidatos_temp = (
+        "temperatura_c",
+        "temperatura",
+        "temperature",
+        "temp_c",
+        "temp",
+    )
+    candidatos_tiempo = (
+        "timestamp",
+        "time",
+        "fecha_hora",
+        "fecha",
+        "datetime",
+        "hora",
+    )
+
+    col_temp = None
+    for col_original, col_norm in normalizadas.items():
+        if any(token in col_norm for token in candidatos_temp):
+            col_temp = col_original
+            break
+
+    col_tiempo = None
+    for col_original, col_norm in normalizadas.items():
+        if any(token in col_norm for token in candidatos_tiempo):
+            col_tiempo = col_original
+            break
+
+    return col_temp, col_tiempo
+
+
 @st.cache_data(show_spinner=False)
 def _analizar_resumen_desde_bytes(csv_bytes):
     df = _leer_dataframe_desde_bytes(csv_bytes)
+
+    # Normalización flexible de columnas para ser agnóstico al sensor.
+    col_temp = None
+    col_tiempo = None
+    for col in df.columns:
+        col_norm = str(col).strip().lower()
+        if col_temp is None and any(k in col_norm for k in ("temp", "grados", "celsius", "temperature")):
+            col_temp = col
+        if col_tiempo is None and any(k in col_norm for k in ("time", "fecha", "hora", "timestamp")):
+            col_tiempo = col
+        if col_temp and col_tiempo:
+            break
+
+    renombres = {}
+    if col_temp and col_temp != "Temperatura_C":
+        renombres[col_temp] = "Temperatura_C"
+    if col_tiempo and col_tiempo != "Timestamp":
+        renombres[col_tiempo] = "Timestamp"
+    if renombres:
+        df = df.rename(columns=renombres)
+
     if "Temperatura_C" not in df.columns:
-        raise ValueError("El CSV no contiene la columna requerida: 'Temperatura_C'.")
-    max_temp = df['Temperatura_C'].max()
-    fallos = df[df['Temperatura_C'] > 1.1]
+        raise ValueError(
+            "No se encontró ninguna columna que parezca temperatura "
+            "(temp/grados/celsius/temperature)."
+        )
+
+    max_temp = df["Temperatura_C"].max()
+    fallos = df[df["Temperatura_C"] > 1.1]
     minutos_fallo = len(fallos)
     veredicto = "APTO" if minutos_fallo == 0 else "RECHAZADO"
 

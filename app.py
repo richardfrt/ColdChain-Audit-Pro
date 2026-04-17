@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 
 try:
     import plotly.graph_objects as go
@@ -6,7 +7,13 @@ try:
 except Exception:
     PLOTLY_DISPONIBLE = False
 
-from sistema_final import analizar_datos, obtener_informe_ia, generar_pdf, cargar_datos_csv
+from sistema_final import (
+    analizar_datos,
+    obtener_informe_ia,
+    generar_pdf,
+    cargar_datos_csv,
+    resolver_columnas_telemetria,
+)
 
 
 st.set_page_config(
@@ -50,20 +57,48 @@ if btn_analizar:
         c2.metric("Temperatura Máxima (°C)", f"{resumen['max_temp']:.2f}")
         c3.metric("Fallos (min)", str(resumen["minutos_fallo"]))
 
-        if "Temperatura_C" not in df_telemetria.columns:
-            st.error("El CSV no contiene la columna requerida: 'Temperatura_C'.")
+        col_temp, col_tiempo = resolver_columnas_telemetria(df_telemetria)
+        if not col_temp:
+            st.error(
+                "No se encontró una columna de temperatura compatible "
+                "(ej: Temperatura_C, Temperature, temp)."
+            )
             st.stop()
 
         # Downsampling para mantener fluidez con telemetría masiva.
-        serie_temp = df_telemetria["Temperatura_C"]
+        serie_temp = df_telemetria[col_temp]
         paso = 10 if len(serie_temp) > 1000 else 1
         serie_temp_grafico = serie_temp.iloc[::paso]
+        eje_x = serie_temp_grafico.index
+
+        if col_tiempo:
+            serie_tiempo = (
+                df_telemetria[col_tiempo]
+                .astype(str)
+                .pipe(lambda s: s.str.strip())
+            )
+            tiempo_parseado = pd.to_datetime(serie_tiempo, errors="coerce")
+            if tiempo_parseado.notna().sum() > 0:
+                df_plot = (
+                    df_telemetria.assign(_tiempo=tiempo_parseado)
+                    .dropna(subset=["_tiempo"])
+                    .set_index("_tiempo")
+                    [[col_temp]]
+                )
+                if len(df_plot) > 1000:
+                    # Si hay timestamps válidos, se usa resample para una curva ligera.
+                    df_plot = df_plot.resample("10min").mean().dropna()
+                else:
+                    df_plot = df_plot.iloc[::paso]
+                serie_temp_grafico = df_plot[col_temp]
+                eje_x = df_plot.index
 
         st.subheader("Análisis de Telemetría: Curva de Temperatura")
         if PLOTLY_DISPONIBLE:
             figura = go.Figure()
             figura.add_trace(
                 go.Scattergl(
+                    x=eje_x,
                     y=serie_temp_grafico,
                     mode="lines",
                     name="Temperatura (°C)",
