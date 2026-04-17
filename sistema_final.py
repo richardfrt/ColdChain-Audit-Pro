@@ -12,6 +12,9 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 # =====================================
 
 def analizar_datos(archivo_csv):
+    # Soporta tanto una ruta de archivo como un archivo subido desde Streamlit.
+    if hasattr(archivo_csv, "seek"):
+        archivo_csv.seek(0)
     df = pd.read_csv(archivo_csv)
     max_temp = df['Temperatura_C'].max()
     fallos = df[df['Temperatura_C'] > 1.1]

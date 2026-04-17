@@ -3,9 +3,6 @@ import streamlit as st
 from sistema_final import analizar_datos, obtener_informe_ia, generar_pdf
 
 
-ARCHIVO_CSV = "datos_sensor.csv"
-
-
 st.set_page_config(
     page_title="Cold-Chain Auditoría",
     page_icon="🧊",
@@ -20,7 +17,10 @@ with st.sidebar:
         "Aquí podrás analizar el registro de temperaturas, generar el informe legal con IA "
         "y construir el dossier fitosanitario en PDF para el lote."
     )
-    archivo = st.text_input("Archivo CSV", value=ARCHIVO_CSV)
+    archivo_subido = st.file_uploader(
+        "Registro de temperaturas (CSV)",
+        type=["csv"],
+    )
     ejecutar_ia = st.toggle("Generar informe con IA", value=True)
     btn_analizar = st.button("Ejecutar auditoría", type="primary", use_container_width=True)
 
@@ -30,9 +30,13 @@ st.caption("Resultados técnicos + informe de incidencia + PDF final.")
 
 
 if btn_analizar:
+    if archivo_subido is None:
+        st.warning("Por favor, sube un registro de temperaturas (CSV) para comenzar")
+        st.stop()
+
     try:
         with st.spinner("Analizando CSV..."):
-            resumen = analizar_datos(archivo)
+            resumen = analizar_datos(archivo_subido)
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Registros", f"{resumen['total_registros']:,}".replace(",", "."))
