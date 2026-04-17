@@ -28,7 +28,7 @@ def _obtener_csv_bytes(archivo_csv):
 
 @st.cache_data(show_spinner=False)
 def _leer_dataframe_desde_bytes(csv_bytes):
-    return pd.read_csv(io.BytesIO(csv_bytes))
+    return pd.read_csv(io.BytesIO(csv_bytes), sep=None, engine="python", encoding="utf-8")
 
 
 @st.cache_data(show_spinner=False)
