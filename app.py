@@ -65,34 +65,51 @@ if btn_analizar:
             )
             st.stop()
 
-        # Muestreo agresivo: nunca enviar más de 1.000 puntos al gráfico.
         serie_temp = df_telemetria[col_temp]
-        paso = max(1, len(serie_temp) // 1000)
-        serie_temp_grafico = serie_temp.iloc[::paso]
-        eje_x = serie_temp_grafico.index
+        max_temp_archivo = float(serie_temp.max())
 
+        # Sincronización de tiempo para el eje X.
         if col_tiempo:
-            serie_tiempo = (
-                df_telemetria[col_tiempo]
-                .astype(str)
-                .pipe(lambda s: s.str.strip())
-            )
+            serie_tiempo = df_telemetria[col_tiempo].astype(str).str.strip()
             tiempo_parseado = pd.to_datetime(serie_tiempo, errors="coerce")
             if tiempo_parseado.notna().sum() > 0:
-                df_plot = (
-                    df_telemetria.assign(_tiempo=tiempo_parseado)
-                    .dropna(subset=["_tiempo"])
-                    .set_index("_tiempo")
-                    [[col_temp]]
-                )
-                paso_df_plot = max(1, len(df_plot) // 1000)
-                df_plot = df_plot.iloc[::paso_df_plot]
-                serie_temp_grafico = df_plot[col_temp]
-                eje_x = df_plot.index
+                eje_x_base = tiempo_parseado
+            else:
+                eje_x_base = pd.Series(range(len(serie_temp)), index=serie_temp.index)
+        else:
+            eje_x_base = pd.Series(range(len(serie_temp)), index=serie_temp.index)
+
+        # Preservación de picos: dividir en bloques y tomar el máximo de cada bloque.
+        total_puntos = len(serie_temp)
+        block_size = max(1, (total_puntos + 999) // 1000)
+        puntos_x = []
+        puntos_y = []
+
+        for inicio in range(0, total_puntos, block_size):
+            fin = min(inicio + block_size, total_puntos)
+            bloque_temp = serie_temp.iloc[inicio:fin]
+            if bloque_temp.empty:
+                continue
+            idx_max = bloque_temp.idxmax()
+            puntos_x.append(eje_x_base.loc[idx_max])
+            puntos_y.append(float(bloque_temp.max()))
+
+        df_grafico = pd.DataFrame(
+            {
+                "x": puntos_x,
+                "Temperatura (°C)": puntos_y,
+            }
+        )
+        serie_temp_grafico = df_grafico["Temperatura (°C)"]
+        eje_x = df_grafico["x"]
 
         with st.container():
             if (serie_temp > 1.1).any():
                 st.warning("⚠️ Se han detectado picos de temperatura por encima del límite legal")
+                st.markdown(
+                    "<h3 style='color:#d00000;'>⚠️ ALERTA: INCUMPLIMIENTO DE PROTOCOLO DETECTADO EN GRÁFICA</h3>",
+                    unsafe_allow_html=True,
+                )
 
             st.subheader("Análisis de Telemetría: Curva de Temperatura")
             if PLOTLY_DISPONIBLE:
@@ -121,12 +138,16 @@ if btn_analizar:
                     line_width=2,
                     line_dash="dash",
                 )
+                y_min = min(float(serie_temp_grafico.min()), 1.1)
+                y_max = max(max_temp_archivo, 1.1)
+                margen = max(0.05, (y_max - y_min) * 0.08)
                 figura.update_layout(
                     xaxis_title="Registro",
                     yaxis_title="Temperatura (°C)",
                     template="plotly_white",
                     margin=dict(l=20, r=20, t=20, b=20),
                     transition=dict(duration=0),
+                    yaxis=dict(range=[y_min - margen, y_max + margen]),
                 )
                 st.plotly_chart(
                     figura,
@@ -141,9 +162,9 @@ if btn_analizar:
                     }
                 )
 
-            if paso > 1:
+            if block_size > 1:
                 st.caption(
-                    f"Visualización optimizada: {len(serie_temp_grafico)} puntos mostrados de {len(serie_temp)}."
+                    f"Visualización optimizada con preservación de picos: {len(serie_temp_grafico)} puntos mostrados de {len(serie_temp)}."
                 )
 
         st.subheader("Veredicto")
