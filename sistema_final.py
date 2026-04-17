@@ -2,6 +2,7 @@ import pandas as pd
 from openai import OpenAI
 from fpdf import FPDF
 import os
+from datetime import datetime
 import streamlit as st
 from openai import OpenAI
 
@@ -52,61 +53,79 @@ def obtener_informe_ia(resumen):
 def generar_pdf(resumen, informe_ia):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Encabezado profesional (azul oscuro)
-    azul_oscuro = (8, 36, 92)
-    pdf.set_fill_color(*azul_oscuro)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 14, "INFORME DE AUDITORÍA COLD-CHAIN PRO", ln=True, align="C", fill=True)
-    pdf.ln(6)
-    
-    # Sección 1: Datos técnicos en tabla
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "1. Resumen Técnico del Análisis", ln=True)
-    pdf.ln(2)
 
-    # Tabla (clave/valor)
-    x0 = pdf.l_margin
+    # Encabezado corporativo
+    fecha_actual = datetime.now().strftime("%d/%m/%Y")
+    azul_oscuro = (8, 36, 92)
+    pdf.set_draw_color(*azul_oscuro)
+    pdf.set_text_color(*azul_oscuro)
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 12, "CERTIFICADO DE AUDITORÍA DE CADENA DE FRÍO", ln=True, align="C")
+    pdf.set_font("Arial", "", 11)
+    pdf.cell(0, 7, f"Empresa: ColdChain Audit Pro    Fecha: {fecha_actual}", ln=True, align="C")
+    pdf.ln(4)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+    pdf.ln(6)
+
+    # Resumen técnico estructurado
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", "B", 13)
+    pdf.cell(0, 9, "RESUMEN TÉCNICO", ln=True)
+
     ancho_total = pdf.w - pdf.l_margin - pdf.r_margin
-    ancho_clave = ancho_total * 0.55
+    ancho_clave = ancho_total * 0.62
     ancho_valor = ancho_total - ancho_clave
-    alto_fila = 8
+    alto_fila = 9
 
     pdf.set_fill_color(240, 245, 255)
-    pdf.set_draw_color(180, 190, 210)
+    pdf.set_draw_color(130, 145, 180)
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(ancho_clave, alto_fila, "Dato", border=1, fill=True)
+    pdf.cell(ancho_clave, alto_fila, "Parámetro", border=1, fill=True)
     pdf.cell(ancho_valor, alto_fila, "Valor", border=1, ln=True, fill=True)
 
     pdf.set_font("Arial", "", 11)
     filas = [
-        ("Registros analizados", str(resumen["total_registros"])),
-        ("Temperatura máxima detectada (°C)", f"{resumen['max_temp']:.2f}"),
-        ("Minutos fuera de rango (> 1.1°C)", str(resumen["minutos_fallo"])),
+        ("Total de registros", str(resumen["total_registros"])),
+        ("Temperatura Máxima (°C)", f"{resumen['max_temp']:.2f}"),
+        ("Minutos de Fallo (> 1.1°C)", str(resumen["minutos_fallo"])),
     ]
     for clave, valor in filas:
         pdf.cell(ancho_clave, alto_fila, clave, border=1)
         pdf.cell(ancho_valor, alto_fila, valor, border=1, ln=True)
 
-    # Veredicto destacado
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 13)
+    # Veredicto destacado con borde grueso
+    pdf.ln(8)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "VEREDICTO FINAL", ln=True)
+    pdf.set_line_width(1.2)
     if resumen["veredicto"] == "RECHAZADO":
         pdf.set_text_color(176, 0, 32)
     else:
         pdf.set_text_color(11, 110, 79)
-    pdf.cell(0, 10, f"VEREDICTO FINAL: {resumen['veredicto']}", ln=True)
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 14, resumen["veredicto"], border=1, ln=True, align="C")
+    pdf.set_line_width(0.2)
     pdf.set_text_color(0, 0, 0)
-    pdf.ln(2)
-    
-    # Informe IA
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "2. Informe de Incidencia (IA)", ln=True)
-    pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(0, 5, informe_ia)
-    
+
+    # Informe IA en bloque corporativo
+    pdf.ln(8)
+    pdf.set_font("Arial", "B", 13)
+    pdf.cell(0, 9, "ANÁLISIS LEGAL Y DE INCIDENCIAS", ln=True)
+    pdf.set_font("Arial", "", 11)
+    pdf.multi_cell(0, 6, informe_ia, align="J")
+
+    # Pie de página
+    pdf.set_y(-15)
+    pdf.set_text_color(90, 90, 90)
+    pdf.set_font("Arial", "I", 8)
+    pdf.cell(
+        0,
+        5,
+        "Documento generado automáticamente por sistema de auditoría basado en IA. V 2.0",
+        ln=True,
+        align="C",
+    )
+
     nombre_archivo = "Dossier_Fitosanitario_Final.pdf"
     pdf.output(nombre_archivo)
     return nombre_archivo
