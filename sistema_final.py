@@ -71,7 +71,7 @@ def resolver_columnas_telemetria(df):
 
 
 @st.cache_data(show_spinner=False)
-def _analizar_resumen_desde_bytes(csv_bytes):
+def _analizar_resumen_desde_bytes(csv_bytes, limite_temperatura=1.1):
     df = _leer_dataframe_desde_bytes(csv_bytes)
 
     # Normalización flexible de columnas para ser agnóstico al sensor.
@@ -101,7 +101,7 @@ def _analizar_resumen_desde_bytes(csv_bytes):
         )
 
     max_temp = df["Temperatura_C"].max()
-    fallos = df[df["Temperatura_C"] > 1.1]
+    fallos = df[df["Temperatura_C"] > limite_temperatura]
     minutos_fallo = len(fallos)
     veredicto = "APTO" if minutos_fallo == 0 else "RECHAZADO"
 
@@ -109,7 +109,8 @@ def _analizar_resumen_desde_bytes(csv_bytes):
         "total_registros": len(df),
         "max_temp": max_temp,
         "minutos_fallo": minutos_fallo,
-        "veredicto": veredicto
+        "veredicto": veredicto,
+        "limite_temperatura": limite_temperatura,
     }
 
 
@@ -118,21 +119,27 @@ def cargar_datos_csv(archivo_csv):
     return _leer_dataframe_desde_bytes(csv_bytes)
 
 
-def analizar_datos(archivo_csv):
+def analizar_datos(archivo_csv, limite_temperatura=1.1):
     csv_bytes = _obtener_csv_bytes(archivo_csv)
-    return _analizar_resumen_desde_bytes(csv_bytes)
+    return _analizar_resumen_desde_bytes(csv_bytes, limite_temperatura)
 
-def obtener_informe_ia(resumen):
+def obtener_informe_ia(
+    resumen,
+    pais="Japón (MAFF)",
+    organismo="MAFF",
+    limite_temperatura=1.1,
+):
     print("Consultando al experto legal de OpenAI...")
     instrucciones = f"""
-    Eres un consultor experto en exportaciones. 
-    Analiza estos datos de un contenedor hacia Japón:
+    Actúa como un inspector de {pais} bajo la normativa {organismo}.
+    Analiza estos datos de un contenedor:
     - Veredicto: {resumen['veredicto']}
     - Minutos fuera de rango: {resumen['minutos_fallo']}
     - Temperatura máxima: {resumen['max_temp']}°C
+    - Límite normativo: {limite_temperatura}°C
     
     Redacta un informe técnico breve y profesional explicando si se cumple el protocolo 
-    de tratamiento en frío (límite 1.1°C) y qué debe hacer la cooperativa.
+    de tratamiento en frío (límite {limite_temperatura}°C) y qué debe hacer la cooperativa.
     """
     try:
         response = client.chat.completions.create(
@@ -143,7 +150,7 @@ def obtener_informe_ia(resumen):
     except Exception as e:
         return f"Error con la IA: {e}"
 
-def generar_pdf(resumen, informe_ia):
+def generar_pdf(resumen, informe_ia, destino="UE", protocolo="Unión Europea (Estándar de Calidad)", limite_temperatura=1.1):
     pdf = FPDF()
     pdf.add_page()
 
@@ -152,10 +159,16 @@ def generar_pdf(resumen, informe_ia):
     azul_oscuro = (8, 36, 92)
     pdf.set_draw_color(*azul_oscuro)
     pdf.set_text_color(*azul_oscuro)
+    titulo_certificado = "CERTIFICADO DE AUDITORÍA DE CADENA DE FRÍO"
+    if destino == "USA":
+        titulo_certificado = "CERTIFICADO DE CUMPLIMIENTO USDA-APHIS"
+    elif destino == "UE":
+        titulo_certificado = "AUDITORÍA DE CALIDAD ALIMENTARIA UE"
     pdf.set_font("Arial", "B", 18)
-    pdf.cell(0, 12, "CERTIFICADO DE AUDITORÍA DE CADENA DE FRÍO", ln=True, align="C")
+    pdf.cell(0, 12, titulo_certificado, ln=True, align="C")
     pdf.set_font("Arial", "", 11)
     pdf.cell(0, 7, f"Empresa: ColdChain Audit Pro    Fecha: {fecha_actual}", ln=True, align="C")
+    pdf.cell(0, 7, f"Protocolo aplicado: {protocolo} (Límite {limite_temperatura:.2f}°C)", ln=True, align="C")
     pdf.ln(4)
     pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
     pdf.ln(6)
@@ -180,7 +193,7 @@ def generar_pdf(resumen, informe_ia):
     filas = [
         ("Total de registros", str(resumen["total_registros"])),
         ("Temperatura Máxima (°C)", f"{resumen['max_temp']:.2f}"),
-        ("Minutos de Fallo (> 1.1°C)", str(resumen["minutos_fallo"])),
+        (f"Minutos de Fallo (> {limite_temperatura:.2f}°C)", str(resumen["minutos_fallo"])),
     ]
     for clave, valor in filas:
         pdf.cell(ancho_clave, alto_fila, clave, border=1)

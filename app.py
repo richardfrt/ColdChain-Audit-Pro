@@ -15,6 +15,15 @@ from sistema_final import (
     resolver_columnas_telemetria,
 )
 
+PROTOCOLOS = {
+    "Unión Europea (Estándar de Calidad)": {"limite": 4.0, "organismo": "Estándar de Calidad UE", "destino": "UE"},
+    "USA (USDA/APHIS)": {"limite": 1.1, "organismo": "USDA/APHIS", "destino": "USA"},
+    "China (GACC)": {"limite": 0.0, "organismo": "GACC", "destino": "China"},
+    "Japón (MAFF)": {"limite": 1.1, "organismo": "MAFF", "destino": "Japón"},
+    "Corea del Sur (APQA)": {"limite": 0.6, "organismo": "APQA", "destino": "Corea del Sur"},
+    "Personalizado": {"limite": None, "organismo": "Normativa personalizada", "destino": "Personalizado"},
+}
+
 
 st.set_page_config(
     page_title="Cold-Chain Auditoría",
@@ -34,6 +43,17 @@ with st.sidebar:
         "Registro de temperaturas (CSV)",
         type=["csv"],
     )
+    protocolo_seleccionado = st.selectbox("Protocolo de destino", options=list(PROTOCOLOS.keys()))
+    limite_temperatura = PROTOCOLOS[protocolo_seleccionado]["limite"]
+    if limite_temperatura is None:
+        limite_temperatura = st.number_input(
+            "Límite térmico personalizado (°C)",
+            min_value=-10.0,
+            max_value=20.0,
+            value=1.1,
+            step=0.1,
+        )
+    st.caption(f"Límite activo: {limite_temperatura:.2f}°C")
     ejecutar_ia = st.toggle("Generar informe con IA", value=True)
     btn_analizar = st.button("Ejecutar auditoría", type="primary", use_container_width=True)
 
@@ -49,7 +69,7 @@ if btn_analizar:
 
     try:
         with st.spinner("Analizando CSV..."):
-            resumen = analizar_datos(archivo_subido)
+            resumen = analizar_datos(archivo_subido, limite_temperatura)
             df_telemetria = cargar_datos_csv(archivo_subido)
 
         c1, c2, c3 = st.columns(3)
@@ -104,7 +124,7 @@ if btn_analizar:
         eje_x = df_grafico["x"]
 
         with st.container():
-            if (serie_temp > 1.1).any():
+            if (serie_temp > limite_temperatura).any():
                 st.warning("⚠️ Se han detectado picos de temperatura por encima del límite legal")
                 st.markdown(
                     "<h3 style='color:#d00000;'>⚠️ ALERTA: INCUMPLIMIENTO DE PROTOCOLO DETECTADO EN GRÁFICA</h3>",
@@ -124,8 +144,8 @@ if btn_analizar:
                     )
                 )
                 figura.add_hrect(
-                    y0=1.1,
-                    y1=max(float(serie_temp_grafico.max()), 1.1),
+                    y0=limite_temperatura,
+                    y1=max(float(serie_temp_grafico.max()), limite_temperatura),
                     fillcolor="red",
                     opacity=0.08,
                     line_width=0,
@@ -133,13 +153,13 @@ if btn_analizar:
                     annotation_position="top left",
                 )
                 figura.add_hline(
-                    y=1.1,
+                    y=limite_temperatura,
                     line_color="red",
                     line_width=2,
                     line_dash="dash",
                 )
-                y_min = min(float(serie_temp_grafico.min()), 1.1)
-                y_max = max(max_temp_archivo, 1.1)
+                y_min = min(float(serie_temp_grafico.min()), limite_temperatura)
+                y_max = max(max_temp_archivo, limite_temperatura)
                 margen = max(0.05, (y_max - y_min) * 0.08)
                 figura.update_layout(
                     xaxis_title="Registro",
@@ -158,7 +178,7 @@ if btn_analizar:
                 st.line_chart(
                     {
                         "Temperatura (°C)": serie_temp_grafico,
-                        "Línea Crítica (1.1°C)": [1.1] * len(serie_temp_grafico),
+                        f"Línea Crítica ({limite_temperatura:.1f}°C)": [limite_temperatura] * len(serie_temp_grafico),
                     }
                 )
 
@@ -176,7 +196,12 @@ if btn_analizar:
         informe_ia = ""
         if ejecutar_ia:
             with st.spinner("Consultando al agente legal (IA)..."):
-                informe_ia = obtener_informe_ia(resumen)
+                informe_ia = obtener_informe_ia(
+                    resumen,
+                    protocolo_seleccionado,
+                    PROTOCOLOS[protocolo_seleccionado]["organismo"],
+                    limite_temperatura,
+                )
         else:
             informe_ia = (
                 "Informe IA deshabilitado por configuración. "
@@ -187,7 +212,13 @@ if btn_analizar:
         st.write(informe_ia)
 
         with st.spinner("Generando PDF..."):
-            nombre_pdf = generar_pdf(resumen, informe_ia)
+            nombre_pdf = generar_pdf(
+                resumen,
+                informe_ia,
+                destino=PROTOCOLOS[protocolo_seleccionado]["destino"],
+                protocolo=protocolo_seleccionado,
+                limite_temperatura=limite_temperatura,
+            )
 
         st.success(f"PDF generado: {nombre_pdf}")
         with open(nombre_pdf, "rb") as f:
