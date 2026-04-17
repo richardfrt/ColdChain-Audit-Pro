@@ -2,6 +2,7 @@ import pandas as pd
 from openai import OpenAI
 from fpdf import FPDF
 import os
+import io
 from datetime import datetime
 import streamlit as st
 from openai import OpenAI
@@ -12,22 +13,50 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 # 1. CONFIGURACIÓN - PEGA TU CLAVE AQUÍ
 # =====================================
 
-def analizar_datos(archivo_csv):
-    # Soporta tanto una ruta de archivo como un archivo subido desde Streamlit.
+def _obtener_csv_bytes(archivo_csv):
+    if isinstance(archivo_csv, (str, os.PathLike)):
+        with open(archivo_csv, "rb") as f:
+            return f.read()
+    if hasattr(archivo_csv, "getvalue"):
+        return archivo_csv.getvalue()
     if hasattr(archivo_csv, "seek"):
         archivo_csv.seek(0)
-    df = pd.read_csv(archivo_csv)
+    if hasattr(archivo_csv, "read"):
+        return archivo_csv.read()
+    raise TypeError("Formato de archivo CSV no soportado.")
+
+
+@st.cache_data(show_spinner=False)
+def _leer_dataframe_desde_bytes(csv_bytes):
+    return pd.read_csv(io.BytesIO(csv_bytes))
+
+
+@st.cache_data(show_spinner=False)
+def _analizar_resumen_desde_bytes(csv_bytes):
+    df = _leer_dataframe_desde_bytes(csv_bytes)
+    if "Temperatura_C" not in df.columns:
+        raise ValueError("El CSV no contiene la columna requerida: 'Temperatura_C'.")
     max_temp = df['Temperatura_C'].max()
     fallos = df[df['Temperatura_C'] > 1.1]
     minutos_fallo = len(fallos)
     veredicto = "APTO" if minutos_fallo == 0 else "RECHAZADO"
-    
+
     return {
         "total_registros": len(df),
         "max_temp": max_temp,
         "minutos_fallo": minutos_fallo,
         "veredicto": veredicto
     }
+
+
+def cargar_datos_csv(archivo_csv):
+    csv_bytes = _obtener_csv_bytes(archivo_csv)
+    return _leer_dataframe_desde_bytes(csv_bytes)
+
+
+def analizar_datos(archivo_csv):
+    csv_bytes = _obtener_csv_bytes(archivo_csv)
+    return _analizar_resumen_desde_bytes(csv_bytes)
 
 def obtener_informe_ia(resumen):
     print("Consultando al experto legal de OpenAI...")

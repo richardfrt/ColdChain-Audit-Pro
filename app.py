@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 
 try:
     import plotly.graph_objects as go
@@ -7,7 +6,7 @@ try:
 except Exception:
     PLOTLY_DISPONIBLE = False
 
-from sistema_final import analizar_datos, obtener_informe_ia, generar_pdf
+from sistema_final import analizar_datos, obtener_informe_ia, generar_pdf, cargar_datos_csv
 
 
 st.set_page_config(
@@ -44,25 +43,28 @@ if btn_analizar:
     try:
         with st.spinner("Analizando CSV..."):
             resumen = analizar_datos(archivo_subido)
+            df_telemetria = cargar_datos_csv(archivo_subido)
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Registros", f"{resumen['total_registros']:,}".replace(",", "."))
         c2.metric("Temperatura Máxima (°C)", f"{resumen['max_temp']:.2f}")
         c3.metric("Fallos (min)", str(resumen["minutos_fallo"]))
 
-        archivo_subido.seek(0)
-        df_telemetria = pd.read_csv(archivo_subido)
-
         if "Temperatura_C" not in df_telemetria.columns:
             st.error("El CSV no contiene la columna requerida: 'Temperatura_C'.")
             st.stop()
+
+        # Downsampling para mantener fluidez con telemetría masiva.
+        serie_temp = df_telemetria["Temperatura_C"]
+        paso = 10 if len(serie_temp) > 1000 else 1
+        serie_temp_grafico = serie_temp.iloc[::paso]
 
         st.subheader("Análisis de Telemetría: Curva de Temperatura")
         if PLOTLY_DISPONIBLE:
             figura = go.Figure()
             figura.add_trace(
-                go.Scatter(
-                    y=df_telemetria["Temperatura_C"],
+                go.Scattergl(
+                    y=serie_temp_grafico,
                     mode="lines",
                     name="Temperatura (°C)",
                     line=dict(color="#1f77b4", width=2),
@@ -81,11 +83,23 @@ if btn_analizar:
                 yaxis_title="Temperatura (°C)",
                 template="plotly_white",
                 margin=dict(l=20, r=20, t=20, b=20),
+                transition=dict(duration=0),
             )
-            st.plotly_chart(figura, use_container_width=True)
+            st.plotly_chart(
+                figura,
+                use_container_width=True,
+                config={"displaylogo": False},
+            )
         else:
-            st.line_chart(df_telemetria["Temperatura_C"])
-            st.caption("Línea Crítica: 1.1°C (instala Plotly para visualización interactiva).")
+            st.line_chart(
+                {
+                    "Temperatura (°C)": serie_temp_grafico,
+                    "Línea Crítica (1.1°C)": [1.1] * len(serie_temp_grafico),
+                }
+            )
+
+        if paso > 1:
+            st.caption("Visualización optimizada: mostrando 1 de cada 10 registros.")
 
         st.subheader("Veredicto")
         if resumen["veredicto"] == "RECHAZADO":
