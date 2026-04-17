@@ -156,7 +156,31 @@ def obtener_informe_ia(
         return f"Error con la IA: {e}"
 
 def generar_pdf(resumen, informe_ia, destino="UE", protocolo="UE - Estándar General (4.0°C)", limite_temperatura=1.1):
-    pdf = FPDF()
+    class PDFConDisclaimer(FPDF):
+        def __init__(self, destino_pdf, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.destino_pdf = destino_pdf
+
+        def footer(self):
+            self.set_y(-25)
+            self.set_text_color(110, 110, 110)
+            self.set_font("Arial", "I", 8)
+            disclaimer_base = (
+                "AVISO LEGAL: Este documento es un análisis automatizado basado en datos de telemetría "
+                "y tiene carácter exclusivamente informativo. No constituye un certificado oficial de "
+                "exportación ni sustituye la inspección obligatoria de las autoridades fitosanitarias "
+                "competentes (USDA, GACC, MAFF, etc.). El usuario es responsable de verificar la "
+                "integridad de la carga."
+            )
+            if self.destino_pdf in ("USA", "China"):
+                disclaimer_base = (
+                    "NOTA DE ALTA PRIORIDAD: Este informe se rige por protocolos de exportación críticos. "
+                    + disclaimer_base
+                )
+            self.multi_cell(0, 3.4, disclaimer_base, align="J")
+
+    pdf = PDFConDisclaimer(destino)
+    pdf.set_auto_page_break(auto=True, margin=30)
     pdf.add_page()
 
     # Encabezado corporativo
@@ -224,19 +248,6 @@ def generar_pdf(resumen, informe_ia, destino="UE", protocolo="UE - Estándar Gen
     pdf.cell(0, 9, "ANÁLISIS LEGAL Y DE INCIDENCIAS", ln=True)
     pdf.set_font("Arial", "", 11)
     pdf.multi_cell(0, 6, informe_ia, align="J")
-
-    # Pie de página
-    pdf.set_y(-15)
-    pdf.set_text_color(90, 90, 90)
-    pdf.set_font("Arial", "I", 8)
-    pdf.cell(0, 4, "Documento generado automáticamente por sistema de auditoría basado en IA. V 2.0", ln=True, align="C")
-    pdf.cell(
-        0,
-        4,
-        "Aviso legal: Esta herramienta es de carácter informativo y no sustituye la inspección oficial de las autoridades fitosanitarias.",
-        ln=True,
-        align="C",
-    )
 
     nombre_archivo = "Dossier_Fitosanitario_Final.pdf"
     pdf.output(nombre_archivo)
