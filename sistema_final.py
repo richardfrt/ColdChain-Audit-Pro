@@ -5,6 +5,25 @@ from openai import AuthenticationError, OpenAI
 from fpdf import FPDF
 import plotly.io as pio
 
+
+def limpiar_texto_pdf(texto):
+    if not texto:
+        return ""
+    reemplazos = {
+        "–": "-",
+        "—": "-",
+        "“": '"',
+        "”": '"',
+        "‘": "'",
+        "’": "'",
+        "…": "...",
+        "•": "-",
+    }
+    for mal, bien in reemplazos.items():
+        texto = texto.replace(mal, bien)
+    return texto.encode("latin-1", "replace").decode("latin-1")
+
+
 def procesar_archivo_universal(archivo_subido):
     nombre_src = (
         archivo_subido if isinstance(archivo_subido, str) else getattr(archivo_subido, "name", "")
@@ -162,6 +181,7 @@ def generar_pdf(
     limite_temperatura=1.1,
     fig=None,
 ):
+    informe_ia = limpiar_texto_pdf(informe_ia)
     pdf = FPDF()
     pdf.add_page()
 
@@ -199,12 +219,12 @@ def generar_pdf(
         (f"Minutos fuera de rango (> {lim_txt}°C)", str(resumen["minutos_fallo"])),
     ]
     if protocolo:
-        filas.insert(0, ("Protocolo", str(protocolo)))
+        filas.insert(0, ("Protocolo", limpiar_texto_pdf(str(protocolo))))
     if destino:
-        filas.insert(0, ("Destino", str(destino)))
+        filas.insert(0, ("Destino", limpiar_texto_pdf(str(destino))))
     for clave, valor in filas:
-        pdf.cell(ancho_clave, alto_fila, clave, border=1)
-        pdf.cell(ancho_valor, alto_fila, valor, border=1, ln=True)
+        pdf.cell(ancho_clave, alto_fila, limpiar_texto_pdf(clave), border=1)
+        pdf.cell(ancho_valor, alto_fila, limpiar_texto_pdf(valor), border=1, ln=True)
 
     # Veredicto destacado
     pdf.ln(5)
@@ -213,7 +233,7 @@ def generar_pdf(
         pdf.set_text_color(176, 0, 32)
     else:
         pdf.set_text_color(11, 110, 79)
-    pdf.cell(0, 10, f"VEREDICTO FINAL: {resumen['veredicto']}", ln=True)
+    pdf.cell(0, 10, limpiar_texto_pdf(f"VEREDICTO FINAL: {resumen['veredicto']}"), ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
 
@@ -234,7 +254,7 @@ def generar_pdf(
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "3. Informe de Incidencia (IA)", ln=True)
     pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(0, 5, informe_ia)
+    pdf.multi_cell(0, 5, limpiar_texto_pdf(informe_ia))
 
     nombre_archivo = "Dossier_Fitosanitario_Final.pdf"
     pdf.output(nombre_archivo)
