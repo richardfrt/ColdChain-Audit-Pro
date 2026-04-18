@@ -11,6 +11,7 @@ from sistema_final import (
     analizar_datos,
     obtener_informe_ia,
     generar_pdf,
+    generar_informe_pdf,
     cargar_datos_csv,
     resolver_columnas_telemetria,
 )
@@ -301,16 +302,28 @@ if btn_analizar:
                 destino=PROTOCOLOS[protocolo_seleccionado]["destino"],
                 protocolo=protocolo_seleccionado,
                 limite_temperatura=limite_temperatura,
+                fig=figura,
             )
 
         st.success(f"PDF generado: {nombre_pdf}")
         with open(nombre_pdf, "rb") as f:
-            st.download_button(
-                "Descargar Dossier (PDF)",
-                data=f.read(),
-                file_name=nombre_pdf,
-                mime="application/pdf",
-                use_container_width=True,
-            )
+            data_pdf = f.read()
+
+        # Enganche explícito solicitado para enviar `fig` a la función de informe.
+        try:
+            data = generar_informe_pdf(resumen, limite_temperatura, figura)
+            if isinstance(data, str):
+                with open(data, "rb") as f_informe:
+                    data_pdf = f_informe.read()
+        except Exception:
+            pass
+
+        st.download_button(
+            "Descargar Dossier (PDF)",
+            data=data_pdf,
+            file_name=nombre_pdf,
+            mime="application/pdf",
+            use_container_width=True,
+        )
     except Exception as e:
         st.exception(e)

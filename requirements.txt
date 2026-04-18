@@ -1,5 +1,7 @@
 streamlit
 pandas
+plotly
 openai
+openpyxl
 fpdf2
 kaleido

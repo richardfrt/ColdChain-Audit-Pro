@@ -3,6 +3,7 @@ import os
 import pandas as pd
 from openai import AuthenticationError, OpenAI
 from fpdf import FPDF
+import plotly.io as pio
 
 def procesar_archivo_universal(archivo_subido):
     nombre_src = (
@@ -159,6 +160,7 @@ def generar_pdf(
     destino=None,
     protocolo=None,
     limite_temperatura=1.1,
+    fig=None,
 ):
     pdf = FPDF()
     pdf.add_page()
@@ -215,15 +217,41 @@ def generar_pdf(
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
 
+    chart_path = "temp_chart.png"
+    try:
+        if fig is not None:
+            pio.kaleido.scope.default_format = "png"
+            fig.write_image(chart_path, engine="kaleido")
+            pdf.ln(2)
+            pdf.set_font("Arial", "B", 12)
+            pdf.cell(0, 10, "2. Gráfica de Telemetría", ln=True)
+            pdf.image(chart_path, x=10, y=None, w=190)
+    except Exception:
+        pass
+
     # Informe IA
+    pdf.ln(4)
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "2. Informe de Incidencia (IA)", ln=True)
+    pdf.cell(0, 10, "3. Informe de Incidencia (IA)", ln=True)
     pdf.set_font("Arial", "", 10)
     pdf.multi_cell(0, 5, informe_ia)
 
     nombre_archivo = "Dossier_Fitosanitario_Final.pdf"
     pdf.output(nombre_archivo)
+
+    if os.path.exists(chart_path):
+        os.remove(chart_path)
+
     return nombre_archivo
+
+
+def generar_informe_pdf(resumen, mercado, fig):
+    return generar_pdf(
+        resumen,
+        informe_ia="Informe generado sin notas adicionales de IA.",
+        limite_temperatura=mercado,
+        fig=fig,
+    )
 
 
 def main():
