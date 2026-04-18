@@ -104,8 +104,8 @@ with st.sidebar:
         "Panel corporativo para telemetría, informe asistido y dossier PDF."
     )
     archivo_subido = st.file_uploader(
-        "Registro de temperaturas (CSV)",
-        type=["csv"],
+        "Registro de temperaturas (CSV, TXT o Excel)",
+        type=["csv", "txt", "xlsx", "xls"],
     )
     protocolo_seleccionado = st.selectbox("Protocolo de destino", options=list(PROTOCOLOS.keys()))
     limite_temperatura = PROTOCOLOS[protocolo_seleccionado]["limite"]
@@ -129,11 +129,11 @@ st.markdown(
 
 if btn_analizar:
     if archivo_subido is None:
-        st.warning("Por favor, sube un registro de temperaturas (CSV) para comenzar")
+        st.warning("Por favor, sube un registro de temperaturas (CSV, TXT o Excel) para comenzar")
         st.stop()
 
     try:
-        with st.spinner("Analizando CSV..."):
+        with st.spinner("Analizando registro..."):
             resumen = analizar_datos(archivo_subido, limite_temperatura)
             df_telemetria = cargar_datos_csv(archivo_subido)
 
