@@ -4,103 +4,77 @@ import pandas as pd
 from openai import AuthenticationError, OpenAI
 from fpdf import FPDF
 
-# --- Motor de ingesta universal ---
-_CABECERA_KEYWORDS = ("temp", "time", "fecha", "date", "timestamp")
-_SUBS_TEMP = ("temp", "grados", "celsius")
-_SUBS_TIEMPO = ("time", "fecha", "date", "timestamp")
+def procesar_archivo_universal(archivo_subido):
+    nombre_src = (
+        archivo_subido if isinstance(archivo_subido, str) else getattr(archivo_subido, "name", "")
+    )
+    nombre = str(nombre_src).lower()
+    header_idx = 0
 
+    if nombre.endswith((".xlsx", ".xls")):
+        df_raw = pd.read_excel(archivo_subido, header=None, nrows=50)
+        for i in range(len(df_raw)):
+            fila = df_raw.iloc[i].astype(str).str.lower()
+            if fila.str.contains(
+                r"temp|grados|celsius|time|fecha|date|timestamp", regex=True, na=False
+            ).any():
+                header_idx = i
+                break
+    else:
+        if isinstance(archivo_subido, str):
+            with open(archivo_subido, encoding="utf-8", errors="ignore") as fh:
+                lineas = fh.read().splitlines()
+        else:
+            lineas = archivo_subido.getvalue().decode("utf-8", errors="ignore").splitlines()
+        palabras_clave = [
+            "temp",
+            "grados",
+            "celsius",
+            "time",
+            "fecha",
+            "date",
+            "timestamp",
+        ]
+        for i in range(min(100, len(lineas))):
+            linea_lower = lineas[i].lower()
+            if any(palabra in linea_lower for palabra in palabras_clave):
+                header_idx = i
+        # La última coincidencia suele ser la cabecera tabular (evita metadatos tipo "Create Time:").
 
-def _archivo_nombre(archivo_subido):
-    if isinstance(archivo_subido, str):
-        return archivo_subido
-    return getattr(archivo_subido, "name", "") or ""
-
-
-def _stream_rewind(archivo_subido):
     if hasattr(archivo_subido, "seek"):
         try:
             archivo_subido.seek(0)
         except Exception:
             pass
 
-
-def _fila_parece_cabecera(row) -> bool:
-    partes = []
-    for v in row:
-        if pd.isna(v):
-            continue
-        partes.append(str(v).strip().lower())
-    texto = " ".join(partes)
-    return any(kw in texto for kw in _CABECERA_KEYWORDS)
-
-
-def _indice_fila_cabecera(peek_df: pd.DataFrame) -> int:
-    n = min(50, len(peek_df))
-    for i in range(n):
-        if _fila_parece_cabecera(peek_df.iloc[i].values):
-            return i
-    return 0
-
-
-def _read_csv_flexible(archivo_subido, **kwargs):
-    kwargs.setdefault("encoding_errors", "replace")
-    kwargs.setdefault("engine", "python")
-    kwargs.setdefault("sep", None)
-    return pd.read_csv(archivo_subido, **kwargs)
-
-
-def procesar_archivo_universal(archivo_subido):
-    """
-    Lee CSV/TXT/XLS/XLSX, detecta la fila de cabecera entre metadatos,
-    normaliza columnas Temperatura_C y Timestamp y devuelve solo esas columnas
-    (temperatura numérica, filas con NaN en temperatura eliminadas).
-    """
-    _stream_rewind(archivo_subido)
-    nombre = _archivo_nombre(archivo_subido)
-    ext = os.path.splitext(nombre)[1].lower()
-
-    if ext in (".xlsx", ".xls"):
-        peek = pd.read_excel(archivo_subido, header=None, nrows=50)
-        header_row = _indice_fila_cabecera(peek)
-        _stream_rewind(archivo_subido)
-        df = pd.read_excel(archivo_subido, header=header_row)
-    elif ext in (".csv", ".txt") or ext == "":
-        peek = _read_csv_flexible(archivo_subido, header=None, nrows=50)
-        header_row = _indice_fila_cabecera(peek)
-        _stream_rewind(archivo_subido)
-        df = _read_csv_flexible(archivo_subido, header=header_row)
+    if nombre.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(archivo_subido, skiprows=header_idx, header=0)
     else:
-        raise ValueError(
-            f"Formato no soportado ({ext or 'sin extensión'}). Use .csv, .txt, .xlsx o .xls."
+        df = pd.read_csv(
+            archivo_subido,
+            skiprows=header_idx,
+            header=0,
+            sep=None,
+            engine="python",
+            encoding="utf-8",
+            encoding_errors="replace",
+            on_bad_lines="skip",
         )
 
-    def primera_columna_por_substrings(columnas, substrings):
-        for col in columnas:
-            base = str(col).lower()
-            for s in substrings:
-                if s in base:
-                    return col
-        return None
+    nuevas_columnas = {}
+    for col in df.columns:
+        col_str = str(col).lower()
+        if "temp" in col_str or "grados" in col_str or "celsius" in col_str:
+            if "Temperatura_C" not in nuevas_columnas.values():
+                nuevas_columnas[col] = "Temperatura_C"
+        elif "time" in col_str or "fecha" in col_str or "date" in col_str or "timestamp" in col_str:
+            if "Timestamp" not in nuevas_columnas.values():
+                nuevas_columnas[col] = "Timestamp"
 
-    col_temp_orig = primera_columna_por_substrings(df.columns, _SUBS_TEMP)
-    cols_sin_temp = [c for c in df.columns if c != col_temp_orig]
-    col_tiempo_orig = primera_columna_por_substrings(cols_sin_temp, _SUBS_TIEMPO)
+    df = df.rename(columns=nuevas_columnas)
 
-    if col_temp_orig is None:
-        raise ValueError(
-            "No se encontró columna de temperatura reconocible "
-            "(busque 'temp', 'grados' o 'celsius' en la cabecera)."
-        )
-
-    rename = {col_temp_orig: "Temperatura_C"}
-    if col_tiempo_orig is not None:
-        rename[col_tiempo_orig] = "Timestamp"
-
-    df = df.rename(columns=rename)
-    columnas_finales = ["Temperatura_C"]
-    if "Timestamp" in df.columns:
-        columnas_finales.append("Timestamp")
-    df = df[columnas_finales].copy()
+    if "Temperatura_C" not in df.columns:
+        raise ValueError("No se encontró la columna de temperatura.")
 
     df["Temperatura_C"] = pd.to_numeric(df["Temperatura_C"], errors="coerce")
     df = df.dropna(subset=["Temperatura_C"])
