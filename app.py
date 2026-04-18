@@ -11,7 +11,6 @@ from sistema_final import (
     analizar_datos,
     obtener_informe_ia,
     generar_pdf,
-    generar_informe_pdf,
     cargar_datos_csv,
     resolver_columnas_telemetria,
 )
@@ -246,6 +245,8 @@ if btn_analizar:
                 "Informe IA deshabilitado por configuración. "
                 "Activa 'Generar informe con IA' para incluirlo en el dossier."
             )
+        notas_ia_actuales = informe_ia
+        fig = figura
 
         col_grafica, col_datos = st.columns([7, 3])
 
@@ -295,28 +296,16 @@ if btn_analizar:
             st.markdown("##### Notas de la IA")
             st.info(informe_ia)
 
-        with st.spinner("Generando PDF..."):
-            nombre_pdf = generar_pdf(
-                resumen,
-                informe_ia,
-                destino=PROTOCOLOS[protocolo_seleccionado]["destino"],
-                protocolo=protocolo_seleccionado,
-                limite_temperatura=limite_temperatura,
-                fig=figura,
+        if ejecutar_ia and not (notas_ia_actuales or "").strip():
+            st.warning(
+                "La IA aún no terminó de procesar. Espera unos segundos antes de descargar el PDF."
             )
+            st.stop()
 
-        st.success(f"PDF generado: {nombre_pdf}")
-        with open(nombre_pdf, "rb") as f:
-            data_pdf = f.read()
-
-        # Enganche explícito solicitado para enviar `fig` a la función de informe.
-        try:
-            data = generar_informe_pdf(resumen, limite_temperatura, figura)
-            if isinstance(data, str):
-                with open(data, "rb") as f_informe:
-                    data_pdf = f_informe.read()
-        except Exception:
-            pass
+        with st.spinner("Generando PDF..."):
+            data_pdf = generar_pdf(resumen, limite_temperatura, notas_ia_actuales, fig)
+        nombre_pdf = "Dossier_Fitosanitario_Final.pdf"
+        st.success("PDF generado y listo para descargar.")
 
         st.download_button(
             "Descargar Dossier (PDF)",

@@ -173,15 +173,10 @@ def obtener_informe_ia(
         return _notas_credenciales
 
 
-def generar_pdf(
-    resumen,
-    informe_ia,
-    destino=None,
-    protocolo=None,
-    limite_temperatura=1.1,
-    fig=None,
-):
+def generar_pdf(resumen, mercado, informe_ia, figura):
     informe_ia = limpiar_texto_pdf(informe_ia)
+    if not informe_ia.strip():
+        informe_ia = "No se generaron notas de IA"
     pdf = FPDF()
     pdf.add_page()
 
@@ -212,16 +207,13 @@ def generar_pdf(
     pdf.cell(ancho_valor, alto_fila, "Valor", border=1, ln=True, fill=True)
 
     pdf.set_font("Arial", "", 11)
-    lim_txt = f"{limite_temperatura:.2f}"
+    lim_txt = f"{float(mercado):.2f}"
     filas = [
         ("Registros analizados", str(resumen["total_registros"])),
         ("Temperatura máxima detectada (°C)", f"{resumen['max_temp']:.2f}"),
         (f"Minutos fuera de rango (> {lim_txt}°C)", str(resumen["minutos_fallo"])),
     ]
-    if protocolo:
-        filas.insert(0, ("Protocolo", limpiar_texto_pdf(str(protocolo))))
-    if destino:
-        filas.insert(0, ("Destino", limpiar_texto_pdf(str(destino))))
+    filas.insert(0, ("Mercado/Límite (°C)", limpiar_texto_pdf(str(mercado))))
     for clave, valor in filas:
         pdf.cell(ancho_clave, alto_fila, limpiar_texto_pdf(clave), border=1)
         pdf.cell(ancho_valor, alto_fila, limpiar_texto_pdf(valor), border=1, ln=True)
@@ -237,15 +229,15 @@ def generar_pdf(
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
 
-    chart_path = "temp_chart.png"
+    chart_path = "temp_grafica.png"
     try:
-        if fig is not None:
+        if figura is not None:
             pio.kaleido.scope.default_format = "png"
-            fig.write_image(chart_path, engine="kaleido")
+            figura.write_image(chart_path, engine="kaleido")
             pdf.ln(2)
             pdf.set_font("Arial", "B", 12)
             pdf.cell(0, 10, "2. Gráfica de Telemetría", ln=True)
-            pdf.image(chart_path, x=10, y=None, w=190)
+            pdf.image(chart_path, x=10, y=pdf.get_y() + 10, w=190)
     except Exception:
         pass
 
@@ -256,22 +248,19 @@ def generar_pdf(
     pdf.set_font("Arial", "", 10)
     pdf.multi_cell(0, 5, limpiar_texto_pdf(informe_ia))
 
-    nombre_archivo = "Dossier_Fitosanitario_Final.pdf"
-    pdf.output(nombre_archivo)
+    try:
+        pdf_bytes = bytes(pdf.output(dest="S"))
+    except Exception:
+        pdf_bytes = pdf.output(dest="S").encode("latin-1", errors="replace")
 
     if os.path.exists(chart_path):
         os.remove(chart_path)
 
-    return nombre_archivo
+    return pdf_bytes
 
 
 def generar_informe_pdf(resumen, mercado, fig):
-    return generar_pdf(
-        resumen,
-        informe_ia="Informe generado sin notas adicionales de IA.",
-        limite_temperatura=mercado,
-        fig=fig,
-    )
+    return generar_pdf(resumen, mercado, "Informe generado sin notas adicionales de IA.", fig)
 
 
 def main():
@@ -284,10 +273,12 @@ def main():
 
     resumen = analizar_datos(archivo)
     informe_ia = obtener_informe_ia(resumen)
-    pdf_final = generar_pdf(resumen, informe_ia)
+    pdf_data = generar_pdf(resumen, 1.1, informe_ia, None)
+    with open("Dossier_Fitosanitario_Final.pdf", "wb") as fh:
+        fh.write(pdf_data)
 
-    print(f"\n¡ÉXITO!")
-    print(f"Archivo generado: {pdf_final}")
+    print("\n¡ÉXITO!")
+    print("Archivo generado: Dossier_Fitosanitario_Final.pdf")
 
 
 if __name__ == "__main__":
