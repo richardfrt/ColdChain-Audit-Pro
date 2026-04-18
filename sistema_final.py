@@ -1,14 +1,8 @@
 import os
 
 import pandas as pd
-from openai import OpenAI
+from openai import AuthenticationError, OpenAI
 from fpdf import FPDF
-
-# ==========================================
-# 1. CONFIGURACIÓN - PEGA TU CLAVE AQUÍ
-# ==========================================
-TU_API_KEY = "OPENAI_API_KEY"
-client = OpenAI(api_key=TU_API_KEY)
 
 # --- Motor de ingesta universal ---
 _CABECERA_KEYWORDS = ("temp", "time", "fecha", "date", "timestamp")
@@ -152,6 +146,13 @@ def obtener_informe_ia(
     organismo=None,
     limite_temperatura=1.1,
 ):
+    import streamlit as st
+
+    _notas_credenciales = (
+        "Análisis de IA no disponible temporalmente por error de credenciales. "
+        "Revisa st.secrets."
+    )
+
     print("Consultando al experto legal de OpenAI...")
     destino_txt = organismo or "el destino indicado"
     instrucciones = f"""
@@ -166,13 +167,16 @@ def obtener_informe_ia(
     de tratamiento en frío y qué debe hacer la cooperativa.
     """
     try:
+        client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": instrucciones}],
         )
         return response.choices[0].message.content
-    except Exception as e:
-        return f"Error con la IA: {e}"
+    except AuthenticationError:
+        return _notas_credenciales
+    except Exception:
+        return _notas_credenciales
 
 
 def generar_pdf(
