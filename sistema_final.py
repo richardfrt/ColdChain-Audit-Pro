@@ -5,6 +5,8 @@ from openai import AuthenticationError, OpenAI
 from fpdf import FPDF
 import plotly.io as pio
 
+pio.kaleido.scope.default_format = "png"
+
 
 def limpiar_texto_pdf(texto):
     if not texto:
@@ -229,34 +231,31 @@ def generar_pdf(resumen, mercado, informe_ia, figura):
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
 
-    chart_path = "temp_grafica.png"
+    chart_path = "temp_chart.png"
     try:
         if figura is not None:
-            pio.kaleido.scope.default_format = "png"
-            figura.write_image(chart_path, engine="kaleido")
+            pio.write_image(figura, chart_path, engine="kaleido", width=800, height=450)
             pdf.ln(2)
             pdf.set_font("Arial", "B", 12)
             pdf.cell(0, 10, "2. Gráfica de Telemetría", ln=True)
-            pdf.image(chart_path, x=10, y=pdf.get_y() + 10, w=190)
-    except Exception:
-        pass
+            pdf.image(chart_path, x=10, y=None, w=190)
 
-    # Informe IA
-    pdf.ln(4)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "3. Informe de Incidencia (IA)", ln=True)
-    pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(0, 5, limpiar_texto_pdf(informe_ia))
+        # Informe IA
+        pdf.ln(4)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, "3. Informe de Incidencia (IA)", ln=True)
+        pdf.set_font("Arial", "", 10)
+        pdf.multi_cell(0, 5, limpiar_texto_pdf(informe_ia))
 
-    try:
-        pdf_bytes = bytes(pdf.output(dest="S"))
-    except Exception:
-        pdf_bytes = pdf.output(dest="S").encode("latin-1", errors="replace")
+        try:
+            pdf_bytes = bytes(pdf.output(dest="S"))
+        except Exception:
+            pdf_bytes = pdf.output(dest="S").encode("latin-1", errors="replace")
 
-    if os.path.exists(chart_path):
-        os.remove(chart_path)
-
-    return pdf_bytes
+        return pdf_bytes
+    finally:
+        if os.path.exists(chart_path):
+            os.remove(chart_path)
 
 
 def generar_informe_pdf(resumen, mercado, fig):

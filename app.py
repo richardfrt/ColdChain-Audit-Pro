@@ -245,7 +245,7 @@ if btn_analizar:
                 "Informe IA deshabilitado por configuración. "
                 "Activa 'Generar informe con IA' para incluirlo en el dossier."
             )
-        notas_ia_actuales = informe_ia
+        notas_ia = informe_ia
         fig = figura
 
         col_grafica, col_datos = st.columns([7, 3])
@@ -296,20 +296,17 @@ if btn_analizar:
             st.markdown("##### Notas de la IA")
             st.info(informe_ia)
 
-        if ejecutar_ia and not (notas_ia_actuales or "").strip():
+        if ejecutar_ia and not (notas_ia or "").strip():
             st.warning(
                 "La IA aún no terminó de procesar. Espera unos segundos antes de descargar el PDF."
             )
             st.stop()
-
-        with st.spinner("Generando PDF..."):
-            data_pdf = generar_pdf(resumen, limite_temperatura, notas_ia_actuales, fig)
         nombre_pdf = "Dossier_Fitosanitario_Final.pdf"
-        st.success("PDF generado y listo para descargar.")
+        st.success("PDF listo para descargar.")
 
         st.download_button(
             "Descargar Dossier (PDF)",
-            data=data_pdf,
+            data=generar_pdf(resumen, limite_temperatura, notas_ia, fig),
             file_name=nombre_pdf,
             mime="application/pdf",
             use_container_width=True,
