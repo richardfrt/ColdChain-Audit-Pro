@@ -7,7 +7,7 @@ from fpdf import FPDF
 # ==========================================
 # 1. CONFIGURACIÓN - PEGA TU CLAVE AQUÍ
 # ==========================================
-TU_API_KEY = "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"
+TU_API_KEY = "OPENAI_API_KEY"
 client = OpenAI(api_key=TU_API_KEY)
 
 # --- Motor de ingesta universal ---
