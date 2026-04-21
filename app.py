@@ -23,6 +23,64 @@ PROTOCOLOS = {
     "Japón - MAFF Protocol (1.1°C)": {"limite": 1.1, "organismo": "MAFF", "destino": "Japón"},
 }
 
+PERFILES_MERCANCIA = {
+    "Frutas y Verduras": {"temp_ideal": 4.0, "factor_q10": 1.5, "vida_base_dias": 20},
+    "Carne": {"temp_ideal": 1.0, "factor_q10": 2.0, "vida_base_dias": 12},
+    "Pescado y Marisco": {"temp_ideal": 0.0, "factor_q10": 2.5, "vida_base_dias": 8},
+    "Lácteos": {"temp_ideal": 2.0, "factor_q10": 1.8, "vida_base_dias": 14},
+    "Farmacéutico": {"temp_ideal": 5.0, "factor_q10": 3.0, "vida_base_dias": 30},
+}
+
+
+def calcular_vida_util_consumida_q10(serie_temperaturas, tipo_mercancia):
+    """
+    Modelo simplificado Q10:
+    - Si la temperatura está por encima del ideal, se acelera el daño.
+    - Acumula daño relativo por cada registro fuera de ideal.
+    """
+    perfil = PERFILES_MERCANCIA[tipo_mercancia]
+    temp_ideal = perfil["temp_ideal"]
+    factor_q10 = perfil["factor_q10"]
+
+    dano_acumulado = 0.0
+    total_registros = max(1, len(serie_temperaturas))
+
+    for temp in serie_temperaturas:
+        if pd.isna(temp):
+            continue
+        exceso = float(temp) - temp_ideal
+        if exceso > 0:
+            tasa_relativa = factor_q10 ** (exceso / 10.0)
+            dano_acumulado += tasa_relativa
+
+    porcentaje = min((dano_acumulado / total_registros) * 100.0, 100.0)
+    return round(porcentaje, 2)
+
+
+def extraer_panel_predictivo(texto_ia):
+    panel = {
+        "dias": "No disponible",
+        "riesgo": "No disponible",
+        "recomendacion": "No disponible",
+    }
+    if not (texto_ia or "").strip():
+        return panel
+
+    for linea in texto_ia.splitlines():
+        linea_limpia = linea.strip()
+        if ":" not in linea_limpia:
+            continue
+        etiqueta, valor = linea_limpia.split(":", 1)
+        etiqueta = etiqueta.strip().lower()
+        valor = valor.strip() or "No disponible"
+        if "días estimados de vida útil restantes" in etiqueta:
+            panel["dias"] = valor
+        elif "riesgo de rechazo" in etiqueta:
+            panel["riesgo"] = valor
+        elif "recomendación de negocio" in etiqueta:
+            panel["recomendacion"] = valor
+    return panel
+
 
 st.set_page_config(
     page_title="ColdChain Audit Pro | Telemetría",
@@ -110,6 +168,7 @@ with st.sidebar:
         type=["csv", "txt", "xlsx", "xls"],
     )
     protocolo_seleccionado = st.selectbox("Protocolo de destino", options=list(PROTOCOLOS.keys()))
+    tipo_mercancia = st.selectbox("Tipo de Mercancía", options=list(PERFILES_MERCANCIA.keys()))
     limite_temperatura = PROTOCOLOS[protocolo_seleccionado]["limite"]
     st.caption(f"Límite activo: {limite_temperatura:.2f}°C")
     ejecutar_ia = st.toggle("Generar informe con IA", value=True)
@@ -156,6 +215,8 @@ if btn_analizar:
         serie_temp = df_telemetria[col_temp]
         max_temp_archivo = float(serie_temp.max())
         min_temp_archivo = float(serie_temp.min())
+        vida_util_consumida = calcular_vida_util_consumida_q10(serie_temp, tipo_mercancia)
+        vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
 
         # Sincronización de tiempo para el eje X.
         if col_tiempo:
@@ -239,6 +300,7 @@ if btn_analizar:
                     protocolo_seleccionado,
                     PROTOCOLOS[protocolo_seleccionado]["organismo"],
                     limite_temperatura,
+                    vida_util_consumida,
                 )
         else:
             informe_ia = (
@@ -246,6 +308,9 @@ if btn_analizar:
                 "Activa 'Generar informe con IA' para incluirlo en el dossier."
             )
         notas_ia = informe_ia
+        panel_predictivo = extraer_panel_predictivo(informe_ia)
+        vida_base_dias = PERFILES_MERCANCIA[tipo_mercancia]["vida_base_dias"]
+        dias_estimados_local = round(vida_base_dias * (vida_util_restante / 100.0), 1)
         fig = figura
 
         col_grafica, col_datos = st.columns([7, 3])
@@ -295,6 +360,26 @@ if btn_analizar:
                 )
             st.markdown("##### Notas de la IA")
             st.info(informe_ia)
+
+        st.markdown("### Panel Predictivo")
+        p1, p2, p3, p4 = st.columns(4)
+        with p1:
+            st.metric("Vida útil consumida", f"{vida_util_consumida:.2f}%")
+        with p2:
+            st.metric("Vida útil restante", f"{vida_util_restante:.2f}%")
+        with p3:
+            st.metric(
+                "Días restantes (IA)",
+                panel_predictivo["dias"]
+                if panel_predictivo["dias"] != "No disponible"
+                else f"~{dias_estimados_local} días",
+            )
+        with p4:
+            st.metric("Riesgo de rechazo", panel_predictivo["riesgo"])
+
+        st.markdown(
+            f"**Recomendación de negocio:** {panel_predictivo['recomendacion']}"
+        )
 
         if ejecutar_ia and not (notas_ia or "").strip():
             st.warning(

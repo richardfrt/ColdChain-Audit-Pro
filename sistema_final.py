@@ -141,6 +141,7 @@ def obtener_informe_ia(
     protocolo_seleccionado=None,
     organismo=None,
     limite_temperatura=1.1,
+    vida_util_consumida=None,
 ):
     import streamlit as st
 
@@ -152,15 +153,19 @@ def obtener_informe_ia(
     print("Consultando al experto legal de OpenAI...")
     destino_txt = organismo or "el destino indicado"
     instrucciones = f"""
-    Eres un consultor experto en exportaciones.
+    Actúa como un consultor logístico experto en cadena de frío y exportaciones.
     Analiza estos datos de un contenedor (protocolo: {protocolo_seleccionado or 'N/D'}, organismo: {destino_txt}):
     - Veredicto: {resumen['veredicto']}
     - Minutos fuera de rango: {resumen['minutos_fallo']}
     - Temperatura máxima: {resumen['max_temp']}°C
     - Límite térmico de referencia: {limite_temperatura}°C
+    - Vida útil consumida calculada matemáticamente: {vida_util_consumida if vida_util_consumida is not None else 'N/D'}%
 
-    Redacta un informe técnico breve y profesional explicando si se cumple el protocolo
-    de tratamiento en frío y qué debe hacer la cooperativa.
+    Responde en español profesional y en formato EXACTO de 4 líneas:
+    1) Días estimados de vida útil restantes: <número o rango>
+    2) Riesgo de rechazo: <Bajo|Medio|Alto>
+    3) Recomendación de negocio: <acción concreta, por ejemplo Venta prioritaria>
+    4) Justificación técnica: <máximo 2 frases>
     """
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
