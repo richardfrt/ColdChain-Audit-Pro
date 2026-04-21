@@ -5,6 +5,11 @@ import os
 from openai import AuthenticationError, OpenAI
 from fpdf import FPDF
 import plotly.io as pio
+try:
+    from sklearn.ensemble import IsolationForest
+    SKLEARN_DISPONIBLE = True
+except Exception:
+    SKLEARN_DISPONIBLE = False
 
 try:
     import plotly.graph_objects as go
@@ -264,44 +269,38 @@ def obtener_informe_ia(
     dias_consumidos_exactos=None,
     nivel_riesgo=None,
     tiempo_viaje_dias=None,
-    temp_maxima=None,
     tiempo_fuera_rango_horas=None,
+    anomalias=0,
 ):
     _notas_credenciales = (
         "Análisis de IA no disponible temporalmente por error de credenciales. "
         "Revisa st.secrets."
     )
-    destino_txt = organismo or "el destino indicado"
     estado_legal = resumen.get("veredicto", "N/D")
+    dias_restantes = dias_restantes_exactos if dias_restantes_exactos is not None else "N/D"
     instrucciones = f"""
     Eres un auditor logístico experto. Evalúa este envío.
-    DATOS INMUTABLES DEL SISTEMA:
+    DATOS INMUTABLES:
 
     Estado Legal Térmico: {estado_legal}
 
-    Días de vida útil restantes: {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}
+    Días de vida útil restantes: {dias_restantes}
 
     Duración total del viaje: {tiempo_viaje_dias if tiempo_viaje_dias is not None else 'N/D'} días
 
-    Temp. Máxima Alcanzada: {temp_maxima if temp_maxima is not None else 'N/D'}ºC
-
     Tiempo fuera de rango óptimo: {tiempo_fuera_rango_horas if tiempo_fuera_rango_horas is not None else 'N/D'} horas
 
-    Tienes que redactar el informe predictivo cumpliendo estas REGLAS ESTRICTAS:
+    Anomalías mecánicas detectadas por ML: {anomalias} oscilaciones.
 
-    Diferencia claramente entre "Riesgo Sanitario/Rechazo" (causado por mala temperatura) y "Urgencia Comercial" (causada por el paso del tiempo).
+    REGLAS ESTRICTAS PARA REDACTAR:
 
-    Si el Estado Legal es APTO y el tiempo fuera de rango es 0 (o mínimo), la cadena de frío fue PERFECTA. El Riesgo Sanitario es NULO.
+    Diferencia entre "Riesgo Sanitario" (por mal frío) y "Urgencia Comercial" (por viaje largo).
 
-    Si quedan 0 o pocos días restantes pero es APTO, explica que la pérdida de vida útil se debe exclusivamente a la duración del viaje. Habrá "Urgencia Comercial Extrema" para venderlo, pero PROHIBIDO decir que hay riesgo de rechazo por calidad.
+    Si el Estado es APTO, la cadena de frío fue PERFECTA. Prohibido decir que hay riesgo sanitario o de rechazo, aunque queden 0 días. Si quedan 0 días en un estado APTO, explica que se debe exclusivamente a que el viaje ha durado muchos días. Hay urgencia para vender, pero el producto es seguro.
 
-    Redacta el informe en 3 apartados claros:
+    Menciona las anomalías mecánicas: Si hay 0, felicita al transportista. Si hay más de 0, sugiere investigar posibles fallos en el compresor del camión.
 
-    Análisis de la Cadena de Frío.
-
-    Nivel de Urgencia Comercial.
-
-    Recomendación Logística Operativa.
+    Redacta 3 apartados: Análisis de Cadena de Frío, Nivel de Urgencia Comercial, y Recomendación Logística.
     """
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -445,6 +444,26 @@ def calcular_nivel_riesgo(porcentaje_consumido):
     if porcentaje_consumido <= 25:
         return "Riesgo Medio (Requiere venta prioritaria - FEFO)"
     return "Riesgo Alto (Peligro de rechazo, liquidación o merma)"
+
+
+def detectar_anomalias_ml(df, col_temp):
+    df_ml = df.copy()
+    df_ml[col_temp] = pd.to_numeric(df_ml[col_temp], errors="coerce")
+    df_ml = df_ml.dropna(subset=[col_temp]).copy()
+    if df_ml.empty:
+        df_ml["es_anomalia"] = False
+        return df_ml, 0
+
+    df_ml["tasa_cambio"] = df_ml[col_temp].diff().fillna(0)
+    if not SKLEARN_DISPONIBLE:
+        df_ml["es_anomalia"] = False
+        return df_ml, 0
+
+    modelo = IsolationForest(contamination=0.03, random_state=42)
+    X = df_ml[[col_temp, "tasa_cambio"]]
+    pred = modelo.fit_predict(X)
+    df_ml["es_anomalia"] = pred == -1
+    return df_ml, int(df_ml["es_anomalia"].sum())
 
 
 def extraer_huella_termica(df, col_tiempo, col_temp, temp_ideal):
@@ -713,7 +732,6 @@ if btn_analizar:
                 )
             else:
                 tiempo_viaje_dias = 0.0
-                temp_maxima_contexto = round(float(serie_temp.max()), 2)
                 tiempo_fuera_rango_horas = 0.0
         else:
             base_dias = float(PARAMETROS_VIDA_UTIL[tipo_mercancia]["base_dias"])
@@ -723,10 +741,10 @@ if btn_analizar:
                 0.0,
             )
             tiempo_viaje_dias = 0.0
-            temp_maxima_contexto = round(float(serie_temp.max()), 2)
             tiempo_fuera_rango_horas = 0.0
         vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
         nivel_riesgo = calcular_nivel_riesgo(vida_util_consumida)
+        df_anomalias, total_anomalias = detectar_anomalias_ml(df_telemetria, col_temp)
 
         # Preservación de picos: dividir en bloques y tomar el máximo de cada bloque.
         total_puntos = len(serie_temp)
@@ -824,8 +842,8 @@ if btn_analizar:
                     dias_consumidos_exactos,
                     nivel_riesgo,
                     round(tiempo_viaje_dias, 2),
-                    round(temp_maxima_contexto, 2),
                     round(tiempo_fuera_rango_horas, 2),
+                    total_anomalias,
                 )
         else:
             informe_ia = (
@@ -886,6 +904,49 @@ if btn_analizar:
 
         st.markdown("### Informe Técnico (Peritaje)")
         st.info(informe_tecnico_local)
+
+        st.subheader("🤖 Motor de IA: Detección Forense")
+        if PLOTLY_DISPONIBLE:
+            fig_anomalias = go.Figure()
+            fig_anomalias.add_trace(
+                go.Scattergl(
+                    x=df_anomalias.index,
+                    y=df_anomalias[col_temp],
+                    mode="lines",
+                    name="Temperatura",
+                    line=dict(color="#2563eb", width=2),
+                )
+            )
+            df_puntos_anomalos = df_anomalias[df_anomalias["es_anomalia"]]
+            if not df_puntos_anomalos.empty:
+                fig_anomalias.add_trace(
+                    go.Scattergl(
+                        x=df_puntos_anomalos.index,
+                        y=df_puntos_anomalos[col_temp],
+                        mode="markers",
+                        name="Anomalías",
+                        marker=dict(color="#ef4444", size=8),
+                    )
+                )
+            fig_anomalias.update_layout(
+                template="plotly_white",
+                xaxis_title="Registro",
+                yaxis_title="Temperatura (°C)",
+                margin=dict(l=20, r=20, t=20, b=20),
+            )
+            st.plotly_chart(fig_anomalias, use_container_width=True, config={"displaylogo": False})
+        else:
+            st.line_chart({"Temperatura (°C)": df_anomalias[col_temp]})
+            st.caption("Visualización simplificada sin marcadores de anomalía (Plotly no disponible).")
+
+        if total_anomalias == 0:
+            st.success(
+                "✅ El modelo de Machine Learning no ha detectado ninguna oscilación inusual, caída súbita o patrón mecánico sospechoso en el trayecto."
+            )
+        else:
+            st.warning(
+                f"⚠️ Se han detectado {total_anomalias} oscilaciones anómalas (posibles aperturas de puerta en ruta, fallos de compresor o apagados de motor)."
+            )
 
         st.markdown("### Panel Predictivo")
         p1, p2, p3, p4, p5 = st.columns(5)
