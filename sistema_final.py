@@ -142,6 +142,9 @@ def obtener_informe_ia(
     organismo=None,
     limite_temperatura=1.1,
     vida_util_consumida=None,
+    tipo_mercancia=None,
+    indicadores_forenses=None,
+    vida_util_restante=None,
 ):
     import streamlit as st
 
@@ -152,20 +155,38 @@ def obtener_informe_ia(
 
     print("Consultando al experto legal de OpenAI...")
     destino_txt = organismo or "el destino indicado"
+    indicadores_forenses = indicadores_forenses or {}
     instrucciones = f"""
-    Actúa como un consultor logístico experto en cadena de frío y exportaciones.
-    Analiza estos datos de un contenedor (protocolo: {protocolo_seleccionado or 'N/D'}, organismo: {destino_txt}):
-    - Veredicto: {resumen['veredicto']}
+    Actúa como perito técnico de cadena de frío y consultor logístico.
+    Debes producir un informe profesional en español con DOS secciones obligatorias.
+
+    Datos de entrada:
+    - Protocolo: {protocolo_seleccionado or 'N/D'}
+    - Organismo / destino: {destino_txt}
+    - Veredicto actual: {resumen['veredicto']}
+    - Registros analizados: {resumen['total_registros']}
     - Minutos fuera de rango: {resumen['minutos_fallo']}
     - Temperatura máxima: {resumen['max_temp']}°C
     - Límite térmico de referencia: {limite_temperatura}°C
+    - Número de picos sobre límite: {indicadores_forenses.get('num_picos', 'N/D')}
+    - Duración máxima continua de rotura: {indicadores_forenses.get('duracion_max_continua_min', 'N/D')} min
+    - Máximo exceso sobre el límite: {indicadores_forenses.get('max_exceso_c', 'N/D')}°C
+    - Tipo de mercancía: {tipo_mercancia or 'N/D'}
     - Vida útil consumida calculada matemáticamente: {vida_util_consumida if vida_util_consumida is not None else 'N/D'}%
+    - Vida útil restante calculada: {vida_util_restante if vida_util_restante is not None else 'N/D'}%
 
-    Responde en español profesional y en formato EXACTO de 4 líneas:
-    1) Días estimados de vida útil restantes: <número o rango>
-    2) Riesgo de rechazo: <Bajo|Medio|Alto>
-    3) Recomendación de negocio: <acción concreta, por ejemplo Venta prioritaria>
-    4) Justificación técnica: <máximo 2 frases>
+    Formato obligatorio:
+    SECCIÓN 1: Auditoría Técnica
+    - Análisis Forense: <explica picos, duración de rotura y severidad térmica>
+    - Cumplimiento Normativo: <explica si cumple o incumple y por qué>
+    - Impacto Técnico-Legal: <riesgo documental o regulatorio>
+
+    SECCIÓN 2: Inteligencia Predictiva
+    - Días estimados de vida útil restantes: <número o rango>
+    - Riesgo de rechazo: <Bajo|Medio|Alto>
+    - Riesgo de pérdida económica: <Bajo|Medio|Alto>
+    - Recomendación logística: <acción concreta>
+    - Justificación predictiva: <máximo 2 frases>
     """
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -180,7 +201,7 @@ def obtener_informe_ia(
         return _notas_credenciales
 
 
-def generar_pdf(resumen, mercado, informe_ia, figura):
+def generar_pdf(resumen, mercado, informe_ia, figura, figura_predictiva=None):
     informe_ia = limpiar_texto_pdf(informe_ia)
     if not informe_ia.strip():
         informe_ia = "No se generaron notas de IA"
@@ -237,6 +258,7 @@ def generar_pdf(resumen, mercado, informe_ia, figura):
     pdf.ln(2)
 
     chart_path = "temp_chart.png"
+    chart_predictivo_path = "predictivo_chart.png"
     try:
         if figura is not None:
             pio.write_image(figura, chart_path, engine="kaleido", width=800, height=450)
@@ -245,12 +267,46 @@ def generar_pdf(resumen, mercado, informe_ia, figura):
             pdf.cell(0, 10, "2. Gráfica de Telemetría", ln=True)
             pdf.image(chart_path, x=10, y=None, w=190)
 
-        # Informe IA
+        if figura_predictiva is not None:
+            pio.write_image(
+                figura_predictiva,
+                chart_predictivo_path,
+                engine="kaleido",
+                width=800,
+                height=360,
+            )
+            pdf.ln(3)
+            pdf.set_font("Arial", "B", 12)
+            pdf.cell(0, 10, "3. Gráfica Predictiva de Vida Útil", ln=True)
+            pdf.image(chart_predictivo_path, x=10, y=None, w=190)
+
+        # Informe IA completo de doble sección
         pdf.ln(4)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, "3. Informe de Incidencia (IA)", ln=True)
+        pdf.cell(0, 10, "4. Informe Integrado IA", ln=True)
         pdf.set_font("Arial", "", 10)
-        pdf.multi_cell(0, 5, limpiar_texto_pdf(informe_ia))
+        informe_limpio = limpiar_texto_pdf(informe_ia)
+        seccion_1 = "SECCION 1: AUDITORIA TECNICA"
+        seccion_2 = "SECCION 2: INTELIGENCIA PREDICTIVA"
+        texto_upper = informe_limpio.upper()
+
+        idx_s1 = texto_upper.find(seccion_1)
+        idx_s2 = texto_upper.find(seccion_2)
+
+        if idx_s1 >= 0 and idx_s2 > idx_s1:
+            bloque_1 = informe_limpio[idx_s1:idx_s2].strip()
+            bloque_2 = informe_limpio[idx_s2:].strip()
+            pdf.set_font("Arial", "B", 11)
+            pdf.multi_cell(0, 6, "SECCIÓN 1: Auditoría Técnica")
+            pdf.set_font("Arial", "", 10)
+            pdf.multi_cell(0, 5, limpiar_texto_pdf(bloque_1.replace("SECCIÓN 1: Auditoría Técnica", "").strip()))
+            pdf.ln(2)
+            pdf.set_font("Arial", "B", 11)
+            pdf.multi_cell(0, 6, "SECCIÓN 2: Inteligencia Predictiva")
+            pdf.set_font("Arial", "", 10)
+            pdf.multi_cell(0, 5, limpiar_texto_pdf(bloque_2.replace("SECCIÓN 2: Inteligencia Predictiva", "").strip()))
+        else:
+            pdf.multi_cell(0, 5, informe_limpio)
 
         try:
             pdf_bytes = bytes(pdf.output(dest="S"))
@@ -261,6 +317,8 @@ def generar_pdf(resumen, mercado, informe_ia, figura):
     finally:
         if os.path.exists(chart_path):
             os.remove(chart_path)
+        if os.path.exists(chart_predictivo_path):
+            os.remove(chart_predictivo_path)
 
 
 def generar_informe_pdf(resumen, mercado, fig):

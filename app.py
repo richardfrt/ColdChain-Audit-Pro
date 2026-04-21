@@ -57,10 +57,49 @@ def calcular_vida_util_consumida_q10(serie_temperaturas, tipo_mercancia):
     return round(porcentaje, 2)
 
 
+def calcular_indicadores_forenses(serie_temperaturas, limite_temperatura):
+    mascara_fallo = serie_temperaturas > limite_temperatura
+    num_picos = int(((mascara_fallo) & (~mascara_fallo.shift(fill_value=False))).sum())
+    duracion_total_min = int(mascara_fallo.sum())
+
+    duracion_max_continua_min = 0
+    duracion_actual = 0
+    for en_fallo in mascara_fallo:
+        if bool(en_fallo):
+            duracion_actual += 1
+            duracion_max_continua_min = max(duracion_max_continua_min, duracion_actual)
+        else:
+            duracion_actual = 0
+
+    exceso_max = float((serie_temperaturas - limite_temperatura).clip(lower=0).max())
+    return {
+        "num_picos": num_picos,
+        "duracion_total_min": duracion_total_min,
+        "duracion_max_continua_min": int(duracion_max_continua_min),
+        "max_exceso_c": round(exceso_max, 2),
+    }
+
+
+def construir_informe_tecnico_local(resumen, indicadores_forenses, limite_temperatura):
+    cumplimiento = (
+        "Cumple el protocolo de cadena de frío."
+        if resumen["veredicto"] == "APTO"
+        else "Incumple el protocolo de cadena de frío."
+    )
+    return (
+        f"Análisis forense: Se detectaron {indicadores_forenses['num_picos']} picos por encima de "
+        f"{limite_temperatura:.2f}°C, con {indicadores_forenses['duracion_total_min']} min fuera de rango, "
+        f"una rotura continua máxima de {indicadores_forenses['duracion_max_continua_min']} min y un exceso pico de "
+        f"{indicadores_forenses['max_exceso_c']:.2f}°C sobre el límite. "
+        f"Cumplimiento normativo: {cumplimiento}"
+    )
+
+
 def extraer_panel_predictivo(texto_ia):
     panel = {
         "dias": "No disponible",
         "riesgo": "No disponible",
+        "riesgo_economico": "No disponible",
         "recomendacion": "No disponible",
     }
     if not (texto_ia or "").strip():
@@ -77,7 +116,9 @@ def extraer_panel_predictivo(texto_ia):
             panel["dias"] = valor
         elif "riesgo de rechazo" in etiqueta:
             panel["riesgo"] = valor
-        elif "recomendación de negocio" in etiqueta:
+        elif "riesgo de pérdida económica" in etiqueta:
+            panel["riesgo_economico"] = valor
+        elif "recomendación logística" in etiqueta or "recomendación de negocio" in etiqueta:
             panel["recomendacion"] = valor
     return panel
 
@@ -215,6 +256,10 @@ if btn_analizar:
         serie_temp = df_telemetria[col_temp]
         max_temp_archivo = float(serie_temp.max())
         min_temp_archivo = float(serie_temp.min())
+        indicadores_forenses = calcular_indicadores_forenses(serie_temp, limite_temperatura)
+        informe_tecnico_local = construir_informe_tecnico_local(
+            resumen, indicadores_forenses, limite_temperatura
+        )
         vida_util_consumida = calcular_vida_util_consumida_q10(serie_temp, tipo_mercancia)
         vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
 
@@ -292,6 +337,23 @@ if btn_analizar:
                 yaxis=dict(range=[y_min - margen, y_max + margen]),
             )
 
+        figura_predictiva = None
+        if PLOTLY_DISPONIBLE:
+            figura_predictiva = go.Figure()
+            figura_predictiva.add_trace(
+                go.Bar(
+                    x=["Vida consumida", "Vida restante"],
+                    y=[vida_util_consumida, vida_util_restante],
+                    marker_color=["#ef4444", "#22c55e"],
+                )
+            )
+            figura_predictiva.update_layout(
+                template="plotly_white",
+                yaxis_title="Porcentaje (%)",
+                margin=dict(l=20, r=20, t=30, b=20),
+                yaxis=dict(range=[0, 100]),
+            )
+
         informe_ia = ""
         if ejecutar_ia:
             with st.spinner("Consultando al agente legal (IA)..."):
@@ -301,6 +363,9 @@ if btn_analizar:
                     PROTOCOLOS[protocolo_seleccionado]["organismo"],
                     limite_temperatura,
                     vida_util_consumida,
+                    tipo_mercancia,
+                    indicadores_forenses,
+                    vida_util_restante,
                 )
         else:
             informe_ia = (
@@ -361,8 +426,11 @@ if btn_analizar:
             st.markdown("##### Notas de la IA")
             st.info(informe_ia)
 
+        st.markdown("### Informe Técnico (Peritaje)")
+        st.info(informe_tecnico_local)
+
         st.markdown("### Panel Predictivo")
-        p1, p2, p3, p4 = st.columns(4)
+        p1, p2, p3, p4, p5 = st.columns(5)
         with p1:
             st.metric("Vida útil consumida", f"{vida_util_consumida:.2f}%")
         with p2:
@@ -376,6 +444,8 @@ if btn_analizar:
             )
         with p4:
             st.metric("Riesgo de rechazo", panel_predictivo["riesgo"])
+        with p5:
+            st.metric("Riesgo económico", panel_predictivo["riesgo_economico"])
 
         st.markdown(
             f"**Recomendación de negocio:** {panel_predictivo['recomendacion']}"
@@ -391,7 +461,7 @@ if btn_analizar:
 
         st.download_button(
             "Descargar Dossier (PDF)",
-            data=generar_pdf(resumen, limite_temperatura, notas_ia, fig),
+            data=generar_pdf(resumen, limite_temperatura, notas_ia, fig, figura_predictiva),
             file_name=nombre_pdf,
             mime="application/pdf",
             use_container_width=True,
