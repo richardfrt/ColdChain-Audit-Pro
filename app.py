@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 from openai import AuthenticationError, OpenAI
 from fpdf import FPDF
@@ -260,6 +261,7 @@ def obtener_informe_ia(
     indicadores_forenses=None,
     vida_util_restante=None,
     dias_restantes_exactos=None,
+    dias_consumidos_exactos=None,
 ):
     _notas_credenciales = (
         "Análisis de IA no disponible temporalmente por error de credenciales. "
@@ -285,6 +287,7 @@ def obtener_informe_ia(
     - Tipo de mercancía: {tipo_mercancia or 'N/D'}
     - Vida útil consumida calculada matemáticamente: {vida_util_consumida if vida_util_consumida is not None else 'N/D'}%
     - Vida útil restante calculada: {vida_util_restante if vida_util_restante is not None else 'N/D'}%
+    - Días de vida útil consumidos (integración tiempo-temperatura): {dias_consumidos_exactos if dias_consumidos_exactos is not None else 'N/D'}
     - Días de vida útil restantes calculados matemáticamente: {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}
 
     CRÍTICO: Los días de vida útil restantes calculados matemáticamente son EXACTAMENTE {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}.
@@ -406,48 +409,38 @@ PROTOCOLOS = {
     "Japón - MAFF Protocol (1.1°C)": {"limite": 1.1, "organismo": "MAFF", "destino": "Japón"},
 }
 
-PERFILES_MERCANCIA = {
-    "Frutas y Verduras": {"temp_ideal": 4.0, "factor_q10": 1.5},
-    "Carne": {"temp_ideal": 1.0, "factor_q10": 2.0},
-    "Pescado y Marisco": {"temp_ideal": 0.0, "factor_q10": 2.5},
-    "Lácteos": {"temp_ideal": 2.0, "factor_q10": 1.8},
-    "Farmacéutico": {"temp_ideal": 5.0, "factor_q10": 3.0},
-}
-
-VIDA_UTIL_BASE_DIAS = {
-    "Frutas y Verduras": 30,
-    "Carne": 20,
-    "Pescado y Marisco": 12,
-    "Lácteos": 25,
-    "Farmacéutico": 365,
+PARAMETROS_VIDA_UTIL = {
+    "Pescado y Marisco": {"base_dias": 12, "temp_ideal": 2.0, "q10": 3.0},
+    "Carne": {"base_dias": 20, "temp_ideal": 4.0, "q10": 2.5},
+    "Frutas y Verduras": {"base_dias": 30, "temp_ideal": 8.0, "q10": 2.0},
+    "Lácteos": {"base_dias": 25, "temp_ideal": 4.0, "q10": 2.0},
+    "Farmacéutico": {"base_dias": 365, "temp_ideal": 5.0, "q10": 4.0},
 }
 
 
-def calcular_vida_util_consumida_q10(serie_temperaturas, tipo_mercancia):
-    """
-    Modelo simplificado Q10:
-    - Si la temperatura está por encima del ideal, se acelera el daño.
-    - Acumula daño relativo por cada registro fuera de ideal.
-    """
-    perfil = PERFILES_MERCANCIA[tipo_mercancia]
-    temp_ideal = perfil["temp_ideal"]
-    factor_q10 = perfil["factor_q10"]
+def calcular_vida_util_restante(df, col_tiempo, col_temp, tipo_producto):
+    params = PARAMETROS_VIDA_UTIL.get(tipo_producto, PARAMETROS_VIDA_UTIL["Frutas y Verduras"])
+    df_calc = df.copy()
+    df_calc[col_tiempo] = pd.to_datetime(df_calc[col_tiempo], errors="coerce")
+    df_calc[col_temp] = pd.to_numeric(df_calc[col_temp], errors="coerce")
+    df_calc = df_calc.dropna(subset=[col_tiempo, col_temp]).sort_values(by=col_tiempo)
 
-    dano_acumulado = 0.0
-    total_registros = max(1, len(serie_temperaturas))
+    if len(df_calc) < 2:
+        return round(float(params["base_dias"]), 2), 0.0, 0.0
 
-    for temp in serie_temperaturas:
-        if pd.isna(temp):
-            continue
-        exceso = float(temp) - temp_ideal
-        if exceso > 0:
-            tasa_relativa = factor_q10 ** (exceso / 10.0)
-            dano_acumulado += tasa_relativa
+    df_calc["delta_dias"] = df_calc[col_tiempo].diff().dt.total_seconds() / 86400.0
+    df_calc["delta_dias"] = df_calc["delta_dias"].fillna(0).clip(lower=0)
+    df_calc["multiplicador"] = np.where(
+        df_calc[col_temp] > params["temp_ideal"],
+        params["q10"] ** ((df_calc[col_temp] - params["temp_ideal"]) / 10.0),
+        1.0,
+    )
 
-    porcentaje_consumido = min((dano_acumulado / total_registros) * 100.0, 100.0)
-    vida_base_dias = VIDA_UTIL_BASE_DIAS[tipo_mercancia]
-    dias_restantes_exactos = vida_base_dias - (vida_base_dias * (porcentaje_consumido / 100.0))
-    return round(porcentaje_consumido, 2), round(max(0.0, dias_restantes_exactos), 2)
+    dano_total = float((df_calc["delta_dias"] * df_calc["multiplicador"]).sum())
+    dias_restantes = max(0.0, params["base_dias"] - dano_total)
+    porcentaje_consumido = min((dano_total / params["base_dias"]) * 100.0, 100.0)
+
+    return round(dias_restantes, 2), round(dano_total, 2), round(porcentaje_consumido, 2)
 
 
 def calcular_indicadores_forenses(serie_temperaturas, limite_temperatura):
@@ -602,7 +595,7 @@ with st.sidebar:
         type=["csv", "txt", "xlsx", "xls"],
     )
     protocolo_seleccionado = st.selectbox("Protocolo de destino", options=list(PROTOCOLOS.keys()))
-    tipo_mercancia = st.selectbox("Tipo de Mercancía", options=list(PERFILES_MERCANCIA.keys()))
+    tipo_mercancia = st.selectbox("Tipo de Mercancía", options=list(PARAMETROS_VIDA_UTIL.keys()))
     limite_temperatura = PROTOCOLOS[protocolo_seleccionado]["limite"]
     st.caption(f"Límite activo: {limite_temperatura:.2f}°C")
     ejecutar_ia = st.toggle("Generar informe con IA", value=True)
@@ -654,21 +647,32 @@ if btn_analizar:
         informe_tecnico_local = construir_informe_tecnico_local(
             resumen, indicadores_forenses, limite_temperatura
         )
-        vida_util_consumida, dias_restantes_exactos = calcular_vida_util_consumida_q10(
-            serie_temp, tipo_mercancia
-        )
-        vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
-
         # Sincronización de tiempo para el eje X.
         if col_tiempo:
             serie_tiempo = df_telemetria[col_tiempo].astype(str).str.strip()
             tiempo_parseado = pd.to_datetime(serie_tiempo, errors="coerce")
             if tiempo_parseado.notna().sum() > 0:
                 eje_x_base = tiempo_parseado
+                tiempo_para_vida = tiempo_parseado
             else:
                 eje_x_base = pd.Series(range(len(serie_temp)), index=serie_temp.index)
+                tiempo_para_vida = pd.Series([pd.NaT] * len(serie_temp), index=serie_temp.index)
         else:
             eje_x_base = pd.Series(range(len(serie_temp)), index=serie_temp.index)
+            tiempo_para_vida = pd.Series([pd.NaT] * len(serie_temp), index=serie_temp.index)
+
+        if col_tiempo:
+            dias_restantes_exactos, dias_consumidos_exactos, vida_util_consumida = (
+                calcular_vida_util_restante(df_telemetria, col_tiempo, col_temp, tipo_mercancia)
+            )
+        else:
+            base_dias = float(PARAMETROS_VIDA_UTIL[tipo_mercancia]["base_dias"])
+            dias_restantes_exactos, dias_consumidos_exactos, vida_util_consumida = (
+                round(base_dias, 2),
+                0.0,
+                0.0,
+            )
+        vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
 
         # Preservación de picos: dividir en bloques y tomar el máximo de cada bloque.
         total_puntos = len(serie_temp)
@@ -763,6 +767,7 @@ if btn_analizar:
                     indicadores_forenses,
                     vida_util_restante,
                     dias_restantes_exactos,
+                    dias_consumidos_exactos,
                 )
         else:
             informe_ia = (
