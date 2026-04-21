@@ -262,6 +262,7 @@ def obtener_informe_ia(
     vida_util_restante=None,
     dias_restantes_exactos=None,
     dias_consumidos_exactos=None,
+    nivel_riesgo=None,
 ):
     _notas_credenciales = (
         "Análisis de IA no disponible temporalmente por error de credenciales. "
@@ -289,10 +290,13 @@ def obtener_informe_ia(
     - Vida útil restante calculada: {vida_util_restante if vida_util_restante is not None else 'N/D'}%
     - Días de vida útil consumidos (integración tiempo-temperatura): {dias_consumidos_exactos if dias_consumidos_exactos is not None else 'N/D'}
     - Días de vida útil restantes calculados matemáticamente: {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}
+    - Nivel de riesgo económico y de rechazo (calculado en Python): {nivel_riesgo if nivel_riesgo is not None else 'N/D'}
 
     CRÍTICO: Los días de vida útil restantes calculados matemáticamente son EXACTAMENTE {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}.
     BAJO NINGÚN CONCEPTO alteres, estimes o inventes este número.
     Debes usar exactamente esta cifra en tu informe.
+    CRÍTICO: El nivel de riesgo económico y de rechazo es ESTRICTAMENTE "{nivel_riesgo if nivel_riesgo is not None else 'N/D'}".
+    NO evalúes el riesgo por tu cuenta. Tu única labor es redactar un párrafo profesional explicando este nivel de riesgo exacto a un director de logística, sin contradecirlo.
 
     Formato obligatorio:
     SECCIÓN 1: Auditoría Técnica
@@ -302,8 +306,7 @@ def obtener_informe_ia(
 
     SECCIÓN 2: Inteligencia Predictiva
     - Días estimados de vida útil restantes: <número o rango>
-    - Riesgo de rechazo: <Bajo|Medio|Alto>
-    - Riesgo de pérdida económica: <Bajo|Medio|Alto>
+    - Riesgo de rechazo y económico: <usa exactamente "{nivel_riesgo if nivel_riesgo is not None else 'N/D'}">
     - Recomendación logística: <acción concreta>
     - Justificación predictiva: <máximo 2 frases>
     """
@@ -441,6 +444,14 @@ def calcular_vida_util_restante(df, col_tiempo, col_temp, tipo_producto):
     porcentaje_consumido = min((dano_total / params["base_dias"]) * 100.0, 100.0)
 
     return round(dias_restantes, 2), round(dano_total, 2), round(porcentaje_consumido, 2)
+
+
+def calcular_nivel_riesgo(porcentaje_consumido):
+    if porcentaje_consumido <= 5:
+        return "Riesgo Bajo (Apto para venta normal)"
+    if porcentaje_consumido <= 25:
+        return "Riesgo Medio (Requiere venta prioritaria - FEFO)"
+    return "Riesgo Alto (Peligro de rechazo, liquidación o merma)"
 
 
 def calcular_indicadores_forenses(serie_temperaturas, limite_temperatura):
@@ -673,6 +684,7 @@ if btn_analizar:
                 0.0,
             )
         vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
+        nivel_riesgo = calcular_nivel_riesgo(vida_util_consumida)
 
         # Preservación de picos: dividir en bloques y tomar el máximo de cada bloque.
         total_puntos = len(serie_temp)
@@ -768,6 +780,7 @@ if btn_analizar:
                     vida_util_restante,
                     dias_restantes_exactos,
                     dias_consumidos_exactos,
+                    nivel_riesgo,
                 )
         else:
             informe_ia = (
@@ -841,9 +854,9 @@ if btn_analizar:
                 f"{dias_restantes_exactos} días",
             )
         with p4:
-            st.metric("Riesgo de rechazo", panel_predictivo["riesgo"])
+            st.metric("Riesgo de rechazo", nivel_riesgo)
         with p5:
-            st.metric("Riesgo económico", panel_predictivo["riesgo_economico"])
+            st.metric("Riesgo económico", nivel_riesgo)
 
         st.markdown(
             f"**Recomendación de negocio:** {panel_predictivo['recomendacion']}"
