@@ -205,6 +205,7 @@ def obtener_informe_ia(
     tipo_mercancia=None,
     indicadores_forenses=None,
     vida_util_restante=None,
+    dias_restantes_exactos=None,
 ):
     _notas_credenciales = (
         "Análisis de IA no disponible temporalmente por error de credenciales. "
@@ -230,6 +231,11 @@ def obtener_informe_ia(
     - Tipo de mercancía: {tipo_mercancia or 'N/D'}
     - Vida útil consumida calculada matemáticamente: {vida_util_consumida if vida_util_consumida is not None else 'N/D'}%
     - Vida útil restante calculada: {vida_util_restante if vida_util_restante is not None else 'N/D'}%
+    - Días de vida útil restantes calculados matemáticamente: {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}
+
+    CRÍTICO: Los días de vida útil restantes calculados matemáticamente son EXACTAMENTE {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}.
+    BAJO NINGÚN CONCEPTO alteres, estimes o inventes este número.
+    Debes usar exactamente esta cifra en tu informe.
 
     Formato obligatorio:
     SECCIÓN 1: Auditoría Técnica
@@ -249,6 +255,7 @@ def obtener_informe_ia(
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": instrucciones}],
+            temperature=0.0,
         )
         return response.choices[0].message.content
     except AuthenticationError:
@@ -346,11 +353,19 @@ PROTOCOLOS = {
 }
 
 PERFILES_MERCANCIA = {
-    "Frutas y Verduras": {"temp_ideal": 4.0, "factor_q10": 1.5, "vida_base_dias": 20},
-    "Carne": {"temp_ideal": 1.0, "factor_q10": 2.0, "vida_base_dias": 12},
-    "Pescado y Marisco": {"temp_ideal": 0.0, "factor_q10": 2.5, "vida_base_dias": 8},
-    "Lácteos": {"temp_ideal": 2.0, "factor_q10": 1.8, "vida_base_dias": 14},
-    "Farmacéutico": {"temp_ideal": 5.0, "factor_q10": 3.0, "vida_base_dias": 30},
+    "Frutas y Verduras": {"temp_ideal": 4.0, "factor_q10": 1.5},
+    "Carne": {"temp_ideal": 1.0, "factor_q10": 2.0},
+    "Pescado y Marisco": {"temp_ideal": 0.0, "factor_q10": 2.5},
+    "Lácteos": {"temp_ideal": 2.0, "factor_q10": 1.8},
+    "Farmacéutico": {"temp_ideal": 5.0, "factor_q10": 3.0},
+}
+
+VIDA_UTIL_BASE_DIAS = {
+    "Frutas y Verduras": 30,
+    "Carne": 20,
+    "Pescado y Marisco": 12,
+    "Lácteos": 25,
+    "Farmacéutico": 365,
 }
 
 
@@ -375,8 +390,10 @@ def calcular_vida_util_consumida_q10(serie_temperaturas, tipo_mercancia):
             tasa_relativa = factor_q10 ** (exceso / 10.0)
             dano_acumulado += tasa_relativa
 
-    porcentaje = min((dano_acumulado / total_registros) * 100.0, 100.0)
-    return round(porcentaje, 2)
+    porcentaje_consumido = min((dano_acumulado / total_registros) * 100.0, 100.0)
+    vida_base_dias = VIDA_UTIL_BASE_DIAS[tipo_mercancia]
+    dias_restantes_exactos = vida_base_dias - (vida_base_dias * (porcentaje_consumido / 100.0))
+    return round(porcentaje_consumido, 2), round(max(0.0, dias_restantes_exactos), 2)
 
 
 def calcular_indicadores_forenses(serie_temperaturas, limite_temperatura):
@@ -583,7 +600,9 @@ if btn_analizar:
         informe_tecnico_local = construir_informe_tecnico_local(
             resumen, indicadores_forenses, limite_temperatura
         )
-        vida_util_consumida = calcular_vida_util_consumida_q10(serie_temp, tipo_mercancia)
+        vida_util_consumida, dias_restantes_exactos = calcular_vida_util_consumida_q10(
+            serie_temp, tipo_mercancia
+        )
         vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
 
         # Sincronización de tiempo para el eje X.
@@ -689,6 +708,7 @@ if btn_analizar:
                     tipo_mercancia,
                     indicadores_forenses,
                     vida_util_restante,
+                    dias_restantes_exactos,
                 )
         else:
             informe_ia = (
@@ -697,8 +717,6 @@ if btn_analizar:
             )
         notas_ia = informe_ia
         panel_predictivo = extraer_panel_predictivo(informe_ia)
-        vida_base_dias = PERFILES_MERCANCIA[tipo_mercancia]["vida_base_dias"]
-        dias_estimados_local = round(vida_base_dias * (vida_util_restante / 100.0), 1)
         fig = figura
 
         col_grafica, col_datos = st.columns([7, 3])
@@ -760,10 +778,8 @@ if btn_analizar:
             st.metric("Vida útil restante", f"{vida_util_restante:.2f}%")
         with p3:
             st.metric(
-                "Días restantes (IA)",
-                panel_predictivo["dias"]
-                if panel_predictivo["dias"] != "No disponible"
-                else f"~{dias_estimados_local} días",
+                "Días restantes exactos",
+                f"{dias_restantes_exactos} días",
             )
         with p4:
             st.metric("Riesgo de rechazo", panel_predictivo["riesgo"])
