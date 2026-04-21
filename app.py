@@ -20,6 +20,12 @@ AVISO_LEGAL = (
 )
 
 
+class ColumnDetectionError(Exception):
+    def __init__(self, message, columns=None):
+        super().__init__(message)
+        self.columns = columns or []
+
+
 def limpiar_texto_pdf(texto):
     if not texto:
         return ""
@@ -57,16 +63,27 @@ def _normalizar_etiqueta(texto):
 
 
 def _detectar_columnas_flexible(df):
-    candidatos_temp = ["temperatura", "temperature", "temp", "celsius", "grados", "c"]
+    candidatos_temp = [
+        "temp",
+        "t1",
+        "t2",
+        "°c",
+        "c°",
+        "celsius",
+        "valor",
+        "temperatura",
+        "temperature",
+        "grados",
+    ]
     candidatos_time = [
-        "timestamp",
-        "fecha hora",
-        "fecha",
-        "hora",
-        "date time",
-        "datetime",
-        "date",
         "time",
+        "fecha",
+        "date",
+        "hora",
+        "timestamp",
+        "momento",
+        "datetime",
+        "date time",
     ]
     col_temp = None
     col_time = None
@@ -79,8 +96,22 @@ def _detectar_columnas_flexible(df):
     return col_temp, col_time
 
 
+def _detectar_fila_inicio_datos_excel(archivo_subido, nrows=20):
+    df_preview = pd.read_excel(archivo_subido, header=None, nrows=nrows)
+    if df_preview.empty:
+        return 0
+
+    def celdas_con_contenido(fila):
+        fila_str = fila.astype(str).str.strip()
+        return int(((fila.notna()) & (fila_str != "") & (fila_str.str.lower() != "nan")).sum())
+
+    densidades = [celdas_con_contenido(df_preview.iloc[i]) for i in range(len(df_preview))]
+    return int(densidades.index(max(densidades)))
+
+
 def _detectar_fila_cabecera_excel(archivo_subido):
-    df_preview = pd.read_excel(archivo_subido, header=None, nrows=80)
+    header_inicio_datos = _detectar_fila_inicio_datos_excel(archivo_subido, nrows=20)
+    df_preview = pd.read_excel(archivo_subido, header=None, skiprows=header_inicio_datos, nrows=80)
     for i in range(len(df_preview)):
         fila = [_normalizar_etiqueta(v) for v in df_preview.iloc[i].tolist()]
         tiene_temp = any(
@@ -92,8 +123,23 @@ def _detectar_fila_cabecera_excel(archivo_subido):
             for celda in fila
         )
         if tiene_temp or tiene_time:
-            return i
-    return 0
+            return header_inicio_datos + i
+    return header_inicio_datos
+
+
+def _detectar_columna_temperatura_por_datos(df):
+    mejor_col = None
+    mejor_score = -1
+    for col in df.columns:
+        serie = pd.to_numeric(df[col], errors="coerce").dropna()
+        if serie.empty:
+            continue
+        dentro_rango = ((serie >= -30) & (serie <= 40)).sum()
+        score = int(dentro_rango)
+        if score > mejor_score and dentro_rango >= max(3, int(len(serie) * 0.4)):
+            mejor_col = col
+            mejor_score = score
+    return mejor_col
 
 
 def _detectar_fila_cabecera_texto(lineas):
@@ -162,7 +208,15 @@ def procesar_archivo_universal(archivo_subido):
     df = df.rename(columns=nuevas_columnas)
 
     if "Temperatura_C" not in df.columns:
-        raise ValueError("No se encontró la columna de temperatura.")
+        col_plan_b = _detectar_columna_temperatura_por_datos(df)
+        if col_plan_b is not None:
+            df = df.rename(columns={col_plan_b: "Temperatura_C"})
+
+    if "Temperatura_C" not in df.columns:
+        raise ColumnDetectionError(
+            "No he podido identificar las columnas automáticamente. Por favor, asegúrate de que el Excel contenga una columna llamada Temperatura o similar.",
+            columns=[str(c) for c in df.columns],
+        )
     df["Temperatura_C"] = pd.to_numeric(df["Temperatura_C"], errors="coerce")
     df = df.dropna(subset=["Temperatura_C"])
     if df.empty:
@@ -805,5 +859,11 @@ if btn_analizar:
             mime="application/pdf",
             use_container_width=True,
         )
+    except ColumnDetectionError as e:
+        st.error(
+            "No he podido identificar las columnas automáticamente. Por favor, asegúrate de que el Excel contenga una columna llamada Temperatura o similar."
+        )
+        if e.columns:
+            st.info(f"Columnas detectadas en el archivo: {', '.join(e.columns)}")
     except Exception as e:
         st.exception(e)
