@@ -263,52 +263,45 @@ def obtener_informe_ia(
     dias_restantes_exactos=None,
     dias_consumidos_exactos=None,
     nivel_riesgo=None,
+    tiempo_viaje_dias=None,
+    temp_maxima=None,
+    tiempo_fuera_rango_horas=None,
 ):
     _notas_credenciales = (
         "Análisis de IA no disponible temporalmente por error de credenciales. "
         "Revisa st.secrets."
     )
     destino_txt = organismo or "el destino indicado"
-    indicadores_forenses = indicadores_forenses or {}
+    estado_legal = resumen.get("veredicto", "N/D")
     instrucciones = f"""
-    Actúa como perito técnico de cadena de frío y consultor logístico.
-    Debes producir un informe profesional en español con DOS secciones obligatorias.
+    Eres un auditor logístico experto. Evalúa este envío.
+    DATOS INMUTABLES DEL SISTEMA:
 
-    Datos de entrada:
-    - Protocolo: {protocolo_seleccionado or 'N/D'}
-    - Organismo / destino: {destino_txt}
-    - Veredicto actual: {resumen['veredicto']}
-    - Registros analizados: {resumen['total_registros']}
-    - Minutos fuera de rango: {resumen['minutos_fallo']}
-    - Temperatura máxima: {resumen['max_temp']}°C
-    - Límite térmico de referencia: {limite_temperatura}°C
-    - Número de picos sobre límite: {indicadores_forenses.get('num_picos', 'N/D')}
-    - Duración máxima continua de rotura: {indicadores_forenses.get('duracion_max_continua_min', 'N/D')} min
-    - Máximo exceso sobre el límite: {indicadores_forenses.get('max_exceso_c', 'N/D')}°C
-    - Tipo de mercancía: {tipo_mercancia or 'N/D'}
-    - Vida útil consumida calculada matemáticamente: {vida_util_consumida if vida_util_consumida is not None else 'N/D'}%
-    - Vida útil restante calculada: {vida_util_restante if vida_util_restante is not None else 'N/D'}%
-    - Días de vida útil consumidos (integración tiempo-temperatura): {dias_consumidos_exactos if dias_consumidos_exactos is not None else 'N/D'}
-    - Días de vida útil restantes calculados matemáticamente: {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}
-    - Nivel de riesgo económico y de rechazo (calculado en Python): {nivel_riesgo if nivel_riesgo is not None else 'N/D'}
+    Estado Legal Térmico: {estado_legal}
 
-    CRÍTICO: Los días de vida útil restantes calculados matemáticamente son EXACTAMENTE {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}.
-    BAJO NINGÚN CONCEPTO alteres, estimes o inventes este número.
-    Debes usar exactamente esta cifra en tu informe.
-    CRÍTICO: El nivel de riesgo económico y de rechazo es ESTRICTAMENTE "{nivel_riesgo if nivel_riesgo is not None else 'N/D'}".
-    NO evalúes el riesgo por tu cuenta. Tu única labor es redactar un párrafo profesional explicando este nivel de riesgo exacto a un director de logística, sin contradecirlo.
+    Días de vida útil restantes: {dias_restantes_exactos if dias_restantes_exactos is not None else 'N/D'}
 
-    Formato obligatorio:
-    SECCIÓN 1: Auditoría Técnica
-    - Análisis Forense: <explica picos, duración de rotura y severidad térmica>
-    - Cumplimiento Normativo: <explica si cumple o incumple y por qué>
-    - Impacto Técnico-Legal: <riesgo documental o regulatorio>
+    Duración total del viaje: {tiempo_viaje_dias if tiempo_viaje_dias is not None else 'N/D'} días
 
-    SECCIÓN 2: Inteligencia Predictiva
-    - Días estimados de vida útil restantes: <número o rango>
-    - Riesgo de rechazo y económico: <usa exactamente "{nivel_riesgo if nivel_riesgo is not None else 'N/D'}">
-    - Recomendación logística: <acción concreta>
-    - Justificación predictiva: <máximo 2 frases>
+    Temp. Máxima Alcanzada: {temp_maxima if temp_maxima is not None else 'N/D'}ºC
+
+    Tiempo fuera de rango óptimo: {tiempo_fuera_rango_horas if tiempo_fuera_rango_horas is not None else 'N/D'} horas
+
+    Tienes que redactar el informe predictivo cumpliendo estas REGLAS ESTRICTAS:
+
+    Diferencia claramente entre "Riesgo Sanitario/Rechazo" (causado por mala temperatura) y "Urgencia Comercial" (causada por el paso del tiempo).
+
+    Si el Estado Legal es APTO y el tiempo fuera de rango es 0 (o mínimo), la cadena de frío fue PERFECTA. El Riesgo Sanitario es NULO.
+
+    Si quedan 0 o pocos días restantes pero es APTO, explica que la pérdida de vida útil se debe exclusivamente a la duración del viaje. Habrá "Urgencia Comercial Extrema" para venderlo, pero PROHIBIDO decir que hay riesgo de rechazo por calidad.
+
+    Redacta el informe en 3 apartados claros:
+
+    Análisis de la Cadena de Frío.
+
+    Nivel de Urgencia Comercial.
+
+    Recomendación Logística Operativa.
     """
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -452,6 +445,30 @@ def calcular_nivel_riesgo(porcentaje_consumido):
     if porcentaje_consumido <= 25:
         return "Riesgo Medio (Requiere venta prioritaria - FEFO)"
     return "Riesgo Alto (Peligro de rechazo, liquidación o merma)"
+
+
+def extraer_huella_termica(df, col_tiempo, col_temp, temp_ideal):
+    df_huella = df.copy()
+    df_huella[col_tiempo] = pd.to_datetime(df_huella[col_tiempo], errors="coerce")
+    df_huella[col_temp] = pd.to_numeric(df_huella[col_temp], errors="coerce")
+    df_huella = df_huella.dropna(subset=[col_tiempo, col_temp]).sort_values(by=col_tiempo)
+
+    if df_huella.empty:
+        return {"temp_maxima": 0.0, "tiempo_fuera_rango_horas": 0.0, "numero_picos": 0}
+
+    df_huella["delta_horas"] = (
+        df_huella[col_tiempo].diff().dt.total_seconds().fillna(0).clip(lower=0) / 3600.0
+    )
+    fuera_rango = df_huella[col_temp] > temp_ideal
+    tiempo_fuera_rango_horas = float(df_huella.loc[fuera_rango, "delta_horas"].sum())
+    numero_picos = int((fuera_rango & (~fuera_rango.shift(fill_value=False))).sum())
+    temp_maxima = float(df_huella[col_temp].max())
+
+    return {
+        "temp_maxima": round(temp_maxima, 2),
+        "tiempo_fuera_rango_horas": round(tiempo_fuera_rango_horas, 2),
+        "numero_picos": numero_picos,
+    }
 
 
 def calcular_indicadores_forenses(serie_temperaturas, limite_temperatura):
@@ -676,6 +693,28 @@ if btn_analizar:
             dias_restantes_exactos, dias_consumidos_exactos, vida_util_consumida = (
                 calcular_vida_util_restante(df_telemetria, col_tiempo, col_temp, tipo_mercancia)
             )
+            df_contexto = df_telemetria.copy()
+            df_contexto[col_tiempo] = pd.to_datetime(df_contexto[col_tiempo], errors="coerce")
+            df_contexto[col_temp] = pd.to_numeric(df_contexto[col_temp], errors="coerce")
+            df_contexto = df_contexto.dropna(subset=[col_tiempo, col_temp]).sort_values(by=col_tiempo)
+
+            if len(df_contexto) >= 1:
+                tiempo_viaje_dias = (
+                    (df_contexto[col_tiempo].max() - df_contexto[col_tiempo].min()).total_seconds()
+                    / 86400.0
+                )
+                temp_maxima_contexto = float(df_contexto[col_temp].max())
+                df_contexto["delta_horas"] = (
+                    df_contexto[col_tiempo].diff().dt.total_seconds().fillna(0).clip(lower=0) / 3600.0
+                )
+                temp_ideal = PARAMETROS_VIDA_UTIL[tipo_mercancia]["temp_ideal"]
+                tiempo_fuera_rango_horas = float(
+                    df_contexto.loc[df_contexto[col_temp] > temp_ideal, "delta_horas"].sum()
+                )
+            else:
+                tiempo_viaje_dias = 0.0
+                temp_maxima_contexto = round(float(serie_temp.max()), 2)
+                tiempo_fuera_rango_horas = 0.0
         else:
             base_dias = float(PARAMETROS_VIDA_UTIL[tipo_mercancia]["base_dias"])
             dias_restantes_exactos, dias_consumidos_exactos, vida_util_consumida = (
@@ -683,6 +722,9 @@ if btn_analizar:
                 0.0,
                 0.0,
             )
+            tiempo_viaje_dias = 0.0
+            temp_maxima_contexto = round(float(serie_temp.max()), 2)
+            tiempo_fuera_rango_horas = 0.0
         vida_util_restante = round(max(0.0, 100.0 - vida_util_consumida), 2)
         nivel_riesgo = calcular_nivel_riesgo(vida_util_consumida)
 
@@ -781,6 +823,9 @@ if btn_analizar:
                     dias_restantes_exactos,
                     dias_consumidos_exactos,
                     nivel_riesgo,
+                    round(tiempo_viaje_dias, 2),
+                    round(temp_maxima_contexto, 2),
+                    round(tiempo_fuera_rango_horas, 2),
                 )
         else:
             informe_ia = (
