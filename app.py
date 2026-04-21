@@ -8,6 +8,7 @@ except Exception:
     PLOTLY_DISPONIBLE = False
 
 from sistema_final import (
+    AVISO_LEGAL,
     analizar_datos,
     obtener_informe_ia,
     generar_pdf,
@@ -217,6 +218,7 @@ with st.sidebar:
     st.caption(
         "Aviso legal: Esta herramienta es de carácter informativo y no sustituye la inspección oficial de las autoridades fitosanitarias."
     )
+    st.info(AVISO_LEGAL)
 
 
 # INSERTAR LOGO AQUÍ (cabecera principal)

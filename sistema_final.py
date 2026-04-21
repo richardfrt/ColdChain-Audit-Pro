@@ -7,6 +7,12 @@ import plotly.io as pio
 
 pio.kaleido.scope.default_format = "png"
 
+AVISO_LEGAL = (
+    "AVISO LEGAL: Este informe es generado por inteligencia artificial como herramienta de "
+    "análisis técnico y apoyo a la toma de decisiones. No constituye un documento con validez "
+    "legal vinculante ni sustituye el peritaje oficial certificado en caso de litigio judicial."
+)
+
 
 def limpiar_texto_pdf(texto):
     if not texto:
@@ -26,6 +32,95 @@ def limpiar_texto_pdf(texto):
     return texto.encode("latin-1", "replace").decode("latin-1")
 
 
+def _normalizar_etiqueta(texto):
+    texto = str(texto or "").strip().lower()
+    reemplazos = {
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "º": "o",
+        "°": "",
+        "_": " ",
+        "-": " ",
+    }
+    for k, v in reemplazos.items():
+        texto = texto.replace(k, v)
+    return " ".join(texto.split())
+
+
+def _detectar_columnas_flexible(df):
+    candidatos_temp = [
+        "temperatura",
+        "temperature",
+        "temp",
+        "celsius",
+        "grados",
+        "c",
+    ]
+    candidatos_time = [
+        "timestamp",
+        "fecha hora",
+        "fecha",
+        "hora",
+        "date time",
+        "datetime",
+        "date",
+        "time",
+    ]
+
+    col_temp = None
+    col_time = None
+
+    for col in df.columns:
+        col_norm = _normalizar_etiqueta(col)
+        if col_temp is None and any(token in col_norm for token in candidatos_temp):
+            col_temp = col
+        if col_time is None and any(token in col_norm for token in candidatos_time):
+            col_time = col
+
+    return col_temp, col_time
+
+
+def _detectar_fila_cabecera_excel(archivo_subido):
+    df_preview = pd.read_excel(archivo_subido, header=None, nrows=80)
+    for i in range(len(df_preview)):
+        fila = [_normalizar_etiqueta(v) for v in df_preview.iloc[i].tolist()]
+        tiene_temp = any(
+            any(t in celda for t in ["temperatura", "temperature", "temp", "celsius", "grados", " c "])
+            for celda in fila
+        )
+        tiene_time = any(
+            any(t in celda for t in ["timestamp", "fecha", "hora", "date", "time", "datetime"])
+            for celda in fila
+        )
+        if tiene_temp or tiene_time:
+            return i
+    return 0
+
+
+def _detectar_fila_cabecera_texto(lineas):
+    palabras_clave = [
+        "temp",
+        "temperature",
+        "temperatura",
+        "grados",
+        "celsius",
+        "timestamp",
+        "fecha",
+        "hora",
+        "date",
+        "time",
+    ]
+    header_idx = 0
+    for i in range(min(120, len(lineas))):
+        linea_norm = _normalizar_etiqueta(lineas[i])
+        if any(p in linea_norm for p in palabras_clave):
+            header_idx = i
+    return header_idx
+
+
 def procesar_archivo_universal(archivo_subido):
     nombre_src = (
         archivo_subido if isinstance(archivo_subido, str) else getattr(archivo_subido, "name", "")
@@ -34,34 +129,14 @@ def procesar_archivo_universal(archivo_subido):
     header_idx = 0
 
     if nombre.endswith((".xlsx", ".xls")):
-        df_raw = pd.read_excel(archivo_subido, header=None, nrows=50)
-        for i in range(len(df_raw)):
-            fila = df_raw.iloc[i].astype(str).str.lower()
-            if fila.str.contains(
-                r"temp|grados|celsius|time|fecha|date|timestamp", regex=True, na=False
-            ).any():
-                header_idx = i
-                break
+        header_idx = _detectar_fila_cabecera_excel(archivo_subido)
     else:
         if isinstance(archivo_subido, str):
             with open(archivo_subido, encoding="utf-8", errors="ignore") as fh:
                 lineas = fh.read().splitlines()
         else:
             lineas = archivo_subido.getvalue().decode("utf-8", errors="ignore").splitlines()
-        palabras_clave = [
-            "temp",
-            "grados",
-            "celsius",
-            "time",
-            "fecha",
-            "date",
-            "timestamp",
-        ]
-        for i in range(min(100, len(lineas))):
-            linea_lower = lineas[i].lower()
-            if any(palabra in linea_lower for palabra in palabras_clave):
-                header_idx = i
-        # La última coincidencia suele ser la cabecera tabular (evita metadatos tipo "Create Time:").
+        header_idx = _detectar_fila_cabecera_texto(lineas)
 
     if hasattr(archivo_subido, "seek"):
         try:
@@ -83,16 +158,13 @@ def procesar_archivo_universal(archivo_subido):
             on_bad_lines="skip",
         )
 
-    nuevas_columnas = {}
-    for col in df.columns:
-        col_str = str(col).lower()
-        if "temp" in col_str or "grados" in col_str or "celsius" in col_str:
-            if "Temperatura_C" not in nuevas_columnas.values():
-                nuevas_columnas[col] = "Temperatura_C"
-        elif "time" in col_str or "fecha" in col_str or "date" in col_str or "timestamp" in col_str:
-            if "Timestamp" not in nuevas_columnas.values():
-                nuevas_columnas[col] = "Timestamp"
+    col_temp_detectada, col_tiempo_detectada = _detectar_columnas_flexible(df)
 
+    nuevas_columnas = {}
+    if col_temp_detectada is not None:
+        nuevas_columnas[col_temp_detectada] = "Temperatura_C"
+    if col_tiempo_detectada is not None:
+        nuevas_columnas[col_tiempo_detectada] = "Timestamp"
     df = df.rename(columns=nuevas_columnas)
 
     if "Temperatura_C" not in df.columns:
@@ -205,7 +277,14 @@ def generar_pdf(resumen, mercado, informe_ia, figura, figura_predictiva=None):
     informe_ia = limpiar_texto_pdf(informe_ia)
     if not informe_ia.strip():
         informe_ia = "No se generaron notas de IA"
-    pdf = FPDF()
+    class PDFConAviso(FPDF):
+        def footer(self):
+            self.set_y(-16)
+            self.set_font("Arial", "I", 8)
+            self.set_text_color(90, 90, 90)
+            self.multi_cell(0, 4, limpiar_texto_pdf(AVISO_LEGAL), align="C")
+
+    pdf = PDFConAviso()
     pdf.add_page()
 
     # Encabezado profesional (azul oscuro)
