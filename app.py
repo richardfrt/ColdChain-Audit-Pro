@@ -278,29 +278,21 @@ def obtener_informe_ia(
     )
     estado_legal = resumen.get("veredicto", "N/D")
     dias_restantes = dias_restantes_exactos if dias_restantes_exactos is not None else "N/D"
+    tipo_producto = tipo_mercancia if tipo_mercancia is not None else "N/D"
     instrucciones = f"""
-    Eres un auditor logístico experto. Evalúa este envío.
-    DATOS INMUTABLES:
+    Eres un auditor técnico pericial especializado en logística a temperatura controlada. Redacta el Informe de Auditoría Técnica para este envío.
 
-    Estado Legal Térmico: {estado_legal}
+    DATOS DEL SISTEMA:
 
-    Días de vida útil restantes: {dias_restantes}
+    Producto: {tipo_producto}
 
-    Duración total del viaje: {tiempo_viaje_dias if tiempo_viaje_dias is not None else 'N/D'} días
+    Veredicto Matemático: {estado_legal}
 
-    Tiempo fuera de rango óptimo: {tiempo_fuera_rango_horas if tiempo_fuera_rango_horas is not None else 'N/D'} horas
+    Vida útil restante: {dias_restantes} días
 
-    Anomalías mecánicas detectadas por ML: {anomalias} oscilaciones.
+    Anomalías mecánicas detectadas por Machine Learning: {anomalias}
 
-    REGLAS ESTRICTAS PARA REDACTAR:
-
-    Diferencia entre "Riesgo Sanitario" (por mal frío) y "Urgencia Comercial" (por viaje largo).
-
-    Si el Estado es APTO, la cadena de frío fue PERFECTA. Prohibido decir que hay riesgo sanitario o de rechazo, aunque queden 0 días. Si quedan 0 días en un estado APTO, explica que se debe exclusivamente a que el viaje ha durado muchos días. Hay urgencia para vender, pero el producto es seguro.
-
-    Menciona las anomalías mecánicas: Si hay 0, felicita al transportista. Si hay más de 0, sugiere investigar posibles fallos en el compresor del camión.
-
-    Redacta 3 apartados: Análisis de Cadena de Frío, Nivel de Urgencia Comercial, y Recomendación Logística.
+    TAREA: Redacta un informe técnico formal y objetivo (máximo 3 párrafos). Analiza el cumplimiento de la cadena de frío. Si el veredicto es APTO, confirma la viabilidad de la mercancía. Si hay anomalías detectadas por el ML, recomiéndale al cliente que revise el estado mecánico del transporte. No inventes datos ni hagas predicciones económicas, cíñete a los hechos técnicos presentados.
     """
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -316,7 +308,7 @@ def obtener_informe_ia(
         return _notas_credenciales
 
 
-def generar_pdf(resumen, mercado, informe_ia, figura, figura_predictiva=None):
+def generar_pdf(resumen, mercado, informe_ia, figura):
     informe_ia = limpiar_texto_pdf(informe_ia)
     if not informe_ia.strip():
         informe_ia = "No se generaron notas de IA"
@@ -366,7 +358,6 @@ def generar_pdf(resumen, mercado, informe_ia, figura, figura_predictiva=None):
     pdf.cell(0, 10, limpiar_texto_pdf(f"VEREDICTO FINAL: {resumen['veredicto']}"), ln=True)
     pdf.set_text_color(0, 0, 0)
     chart_path = "temp_chart.png"
-    chart_predictivo_path = "predictivo_chart.png"
     try:
         if figura is not None:
             pio.write_image(figura, chart_path, engine="kaleido", width=800, height=450)
@@ -374,15 +365,9 @@ def generar_pdf(resumen, mercado, informe_ia, figura, figura_predictiva=None):
             pdf.set_font("Arial", "B", 12)
             pdf.cell(0, 10, "2. Gráfica de Telemetría", ln=True)
             pdf.image(chart_path, x=10, y=None, w=190)
-        if figura_predictiva is not None:
-            pio.write_image(figura_predictiva, chart_predictivo_path, engine="kaleido", width=800, height=360)
-            pdf.ln(3)
-            pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 10, "3. Gráfica Predictiva de Vida Útil", ln=True)
-            pdf.image(chart_predictivo_path, x=10, y=None, w=190)
         pdf.ln(4)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, "4. Informe Integrado IA", ln=True)
+        pdf.cell(0, 10, "3. Informe de Auditoría Técnica (Peritaje)", ln=True)
         pdf.set_font("Arial", "", 10)
         pdf.multi_cell(0, 5, limpiar_texto_pdf(informe_ia))
         try:
@@ -393,8 +378,6 @@ def generar_pdf(resumen, mercado, informe_ia, figura, figura_predictiva=None):
     finally:
         if os.path.exists(chart_path):
             os.remove(chart_path)
-        if os.path.exists(chart_predictivo_path):
-            os.remove(chart_predictivo_path)
 
 PROTOCOLOS = {
     "UE - Estándar General (4.0°C)": {"limite": 4.0, "organismo": "Estándar General UE", "destino": "UE"},
@@ -526,34 +509,6 @@ def construir_informe_tecnico_local(resumen, indicadores_forenses, limite_temper
         f"{indicadores_forenses['max_exceso_c']:.2f}°C sobre el límite. "
         f"Cumplimiento normativo: {cumplimiento}"
     )
-
-
-def extraer_panel_predictivo(texto_ia):
-    panel = {
-        "dias": "No disponible",
-        "riesgo": "No disponible",
-        "riesgo_economico": "No disponible",
-        "recomendacion": "No disponible",
-    }
-    if not (texto_ia or "").strip():
-        return panel
-
-    for linea in texto_ia.splitlines():
-        linea_limpia = linea.strip()
-        if ":" not in linea_limpia:
-            continue
-        etiqueta, valor = linea_limpia.split(":", 1)
-        etiqueta = etiqueta.strip().lower()
-        valor = valor.strip() or "No disponible"
-        if "días estimados de vida útil restantes" in etiqueta:
-            panel["dias"] = valor
-        elif "riesgo de rechazo" in etiqueta:
-            panel["riesgo"] = valor
-        elif "riesgo de pérdida económica" in etiqueta:
-            panel["riesgo_economico"] = valor
-        elif "recomendación logística" in etiqueta or "recomendación de negocio" in etiqueta:
-            panel["recomendacion"] = valor
-    return panel
 
 
 st.set_page_config(
@@ -809,23 +764,6 @@ if btn_analizar:
                 yaxis=dict(range=[y_min - margen, y_max + margen]),
             )
 
-        figura_predictiva = None
-        if PLOTLY_DISPONIBLE:
-            figura_predictiva = go.Figure()
-            figura_predictiva.add_trace(
-                go.Bar(
-                    x=["Vida consumida", "Vida restante"],
-                    y=[vida_util_consumida, vida_util_restante],
-                    marker_color=["#ef4444", "#22c55e"],
-                )
-            )
-            figura_predictiva.update_layout(
-                template="plotly_white",
-                yaxis_title="Porcentaje (%)",
-                margin=dict(l=20, r=20, t=30, b=20),
-                yaxis=dict(range=[0, 100]),
-            )
-
         informe_ia = ""
         if ejecutar_ia:
             with st.spinner("Consultando al agente legal (IA)..."):
@@ -851,7 +789,6 @@ if btn_analizar:
                 "Activa 'Generar informe con IA' para incluirlo en el dossier."
             )
         notas_ia = informe_ia
-        panel_predictivo = extraer_panel_predictivo(informe_ia)
         fig = figura
 
         col_grafica, col_datos = st.columns([7, 3])
@@ -948,26 +885,6 @@ if btn_analizar:
                 f"⚠️ Se han detectado {total_anomalias} oscilaciones anómalas (posibles aperturas de puerta en ruta, fallos de compresor o apagados de motor)."
             )
 
-        st.markdown("### Panel Predictivo")
-        p1, p2, p3, p4, p5 = st.columns(5)
-        with p1:
-            st.metric("Vida útil consumida", f"{vida_util_consumida:.2f}%")
-        with p2:
-            st.metric("Vida útil restante", f"{vida_util_restante:.2f}%")
-        with p3:
-            st.metric(
-                "Días restantes exactos",
-                f"{dias_restantes_exactos} días",
-            )
-        with p4:
-            st.metric("Riesgo de rechazo", nivel_riesgo)
-        with p5:
-            st.metric("Riesgo económico", nivel_riesgo)
-
-        st.markdown(
-            f"**Recomendación de negocio:** {panel_predictivo['recomendacion']}"
-        )
-
         if ejecutar_ia and not (notas_ia or "").strip():
             st.warning(
                 "La IA aún no terminó de procesar. Espera unos segundos antes de descargar el PDF."
@@ -978,7 +895,7 @@ if btn_analizar:
 
         st.download_button(
             "Descargar Dossier (PDF)",
-            data=generar_pdf(resumen, limite_temperatura, notas_ia, fig, figura_predictiva),
+            data=generar_pdf(resumen, limite_temperatura, notas_ia, fig),
             file_name=nombre_pdf,
             mime="application/pdf",
             use_container_width=True,
